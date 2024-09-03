@@ -119,16 +119,16 @@ def list_settings(config):
 def setup_config():
     config = load_config()
     config['DEFAULT']['TELEGRAM_TOKEN'] = input("Enter Telegram bot token: ")
-    config['DEFAULT']['CHAT_ID'] = input("Enter chat ID: ")
-    installation_id = input("Enter your installation ID: ")
+    config['DEFAULT']['CHAT_ID'] = input("Enter telegram channel ID (e.g., -1234567890123): ")
+    installation_id = input("Enter your installation ID:\n(Refer to Victron documentation https://www.victronenergy.com/media/pg/VRM_Portal_manual/en/introduction.html) ")
     config['DEFAULT']['INSTALLATION_ID'] = installation_id
     config['DEFAULT']['VICTRON_API_URL'] = f"https://vrmapi.victronenergy.com/v2/installations/{installation_id}/diagnostics"
-    config['DEFAULT']['API_KEY'] = input("Enter Victron API token: ")
-    config['DEFAULT']['REFRESH_PERIOD'] = input("Enter refresh period in seconds: ") or config['DEFAULT']['REFRESH_PERIOD']
+    config['DEFAULT']['API_KEY'] = input("Enter Victron API token:\n(Refer to Victron API doumentation https://vrm-api-docs.victronenergy.com/) ")
+    config['DEFAULT']['REFRESH_PERIOD'] = input("Enter refresh period in seconds (e.g., 5): ") or config['DEFAULT']['REFRESH_PERIOD']
     config['DEFAULT']['MAX_POWER'] = input("Enter max output power supported by your device in WATTS (W) (e.g., 4000): ") or config['DEFAULT']['MAX_POWER']
     config['DEFAULT']['PASSTHRU_CURRENT'] = input("Enter max output current supported by your device in AMPS (A) in passthru mode (e.g., 50): ") or config['DEFAULT']['PASSTHRU_CURRENT']
     config['DEFAULT']['NOMINAL_VOLTAGE'] = input("Enter nominal voltage in VOLTS (V) (e.g., 230): ") or config['DEFAULT']['NOMINAL_VOLTAGE']
-    config['DEFAULT']['TIMEZONE'] = input("Enter timezone (e.g., Europe/Kyiv or UTC will be used): ") or config['DEFAULT']['TIMEZONE']
+    config['DEFAULT']['TIMEZONE'] = input("Enter timezone (e.g., Europe/Kyiv or UTC will be used):\n(Refer to TZ list in Wilipedia https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) ") or config['DEFAULT']['TIMEZONE']
     save_config(config)
     print("Configuration saved successfully.")
 
