@@ -11,14 +11,6 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Set up logging with rotation
-log_file = os.path.join(CONFIG_DIR, 'victron_monitor.log')
-log_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
-log_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-log_handler.setFormatter(log_formatter)
-
-logging.basicConfig(level=logging.INFO, handlers=[log_handler], format='%(asctime)s %(levelname)s: %(message)s')
-
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.ini')
@@ -36,6 +28,14 @@ OUTPUT_CURRENT_PHASE_2_ID = 24
 OUTPUT_CURRENT_PHASE_3_ID = 25
 VE_BUS_STATE_ID = 40
 PASSTHRU_STATE = 8
+
+# Set up logging with rotation
+log_file = os.path.join(CONFIG_DIR, 'victron_monitor.log')
+log_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
+log_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+log_handler.setFormatter(log_formatter)
+
+logging.basicConfig(level=logging.INFO, handlers=[log_handler], format='%(asctime)s %(levelname)s: %(message)s')
 
 # Default settings
 DEFAULT_SETTINGS = {
