@@ -30,6 +30,7 @@ VE_BUS_STATE_ID = 40
 PASSTHRU_STATE = 8
 
 # Set up logging with rotation
+os.makedirs(CONFIG_DIR, exist_ok=True)
 log_file = os.path.join(CONFIG_DIR, 'victron_monitor.log')
 log_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
 log_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
