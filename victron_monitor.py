@@ -121,15 +121,16 @@ def setup_config():
     config = load_config()
     config['DEFAULT']['TELEGRAM_TOKEN'] = input("Enter Telegram bot token: ")
     config['DEFAULT']['CHAT_ID'] = input("Enter telegram channel ID (e.g., -1234567890123): ")
-    installation_id = input("Enter your installation ID:\n(Refer to Victron documentation https://www.victronenergy.com/media/pg/VRM_Portal_manual/en/introduction.html) ")
+    installation_id = input("Enter your installation ID (Refer to Victron documentation https://www.victronenergy.com/media/pg/VRM_Portal_manual/en/introduction.html): ")
     config['DEFAULT']['INSTALLATION_ID'] = installation_id
     config['DEFAULT']['VICTRON_API_URL'] = f"https://vrmapi.victronenergy.com/v2/installations/{installation_id}/diagnostics"
-    config['DEFAULT']['API_KEY'] = input("Enter Victron API token:\n(Refer to Victron API doumentation https://vrm-api-docs.victronenergy.com/) ")
+    config['DEFAULT']['API_KEY'] = input("Enter Victron API token (Refer to Victron API doumentation https://vrm-api-docs.victronenergy.com/): ")
     config['DEFAULT']['REFRESH_PERIOD'] = input("Enter refresh period in seconds (e.g., 5): ") or config['DEFAULT']['REFRESH_PERIOD']
     config['DEFAULT']['MAX_POWER'] = input("Enter max output power supported by your device in WATTS (W) (e.g., 4000): ") or config['DEFAULT']['MAX_POWER']
     config['DEFAULT']['PASSTHRU_CURRENT'] = input("Enter max output current supported by your device in AMPS (A) in passthru mode (e.g., 50): ") or config['DEFAULT']['PASSTHRU_CURRENT']
     config['DEFAULT']['NOMINAL_VOLTAGE'] = input("Enter nominal voltage in VOLTS (V) (e.g., 230): ") or config['DEFAULT']['NOMINAL_VOLTAGE']
-    config['DEFAULT']['TIMEZONE'] = input("Enter timezone (e.g., Europe/Kyiv or UTC will be used):\n(Refer to TZ list in Wilipedia https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) ") or config['DEFAULT']['TIMEZONE']
+    config['DEFAULT']['TIMEZONE'] = input("Enter timezone (e.g., Europe/Kyiv. Refer to TZ list in Wilipedia https://en.wikipedia.org/wiki/List_of_tz_database_time_zones): ") or config['DEFAULT']['TIMEZONE']
+    config['DEFAULT']['LANGUAGE'] = 'en'  # Default language
     save_config(config)
     print("Configuration saved successfully.")
 
@@ -282,18 +283,25 @@ def view_logs():
 
 def setup_quiet_hours():
     config = load_config()
-    print("Set Quiet Hours (24h format, hour increments):")
+    print("Set Quiet Hours (24h format, hour increments). During this period, messages will be sent silently:")
     start = input("Enter start of quiet hours (e.g., 22) or leave blank to disable: ").strip()
-    end = input("Enter end of quiet hours (e.g., 8) or leave blank to disable: ").strip()
 
-    if start.isdigit() and end.isdigit():
-        start, end = int(start), int(end)
-        if 0 <= start <= 23 and 0 <= end <= 23:
-            config['DEFAULT']['QUIET_HOURS_START'] = str(start)
-            config['DEFAULT']['QUIET_HOURS_END'] = str(end)
-            print(f"Quiet Hours set from {start}:00 to {end}:00")
+    if start.isdigit():
+        start = int(start)
+        if 0 <= start <= 23:
+            end = input("Enter end of quiet hours (e.g., 8): ").strip()
+            if end.isdigit():
+                end = int(end)
+                if 0 <= end <= 23:
+                    config['DEFAULT']['QUIET_HOURS_START'] = str(start)
+                    config['DEFAULT']['QUIET_HOURS_END'] = str(end)
+                    print(f"Quiet Hours set from {start}:00 to {end}:00")
+                else:
+                    print("Invalid input for hours. Please enter values between 0 and 23.")
+            else:
+                print("Invalid input for end hour. Please enter a valid hour between 0 and 23.")
         else:
-            print("Invalid input for hours. Please enter values between 0 and 23.")
+            print("Invalid input for start hour. Please enter a valid hour between 0 and 23.")
     else:
         config['DEFAULT']['QUIET_HOURS_START'] = ''
         config['DEFAULT']['QUIET_HOURS_END'] = ''
