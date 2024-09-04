@@ -52,7 +52,8 @@ DEFAULT_SETTINGS = {
     'QUIET_HOURS_START': '',
     'QUIET_HOURS_END': '',
     'TIMEZONE': 'UTC',
-    'LANGUAGE': 'en'
+    'LANGUAGE': 'en',
+    'INSTALLATION_ID': ''
 }
 
 # Function to create a default configuration file if it doesn't exist
