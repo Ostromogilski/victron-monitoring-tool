@@ -10,6 +10,7 @@ import pytz
 import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
+import readline
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -119,18 +120,34 @@ def list_settings(config):
 # Function to setup configuration
 def setup_config():
     config = load_config()
-    config['DEFAULT']['TELEGRAM_TOKEN'] = input("Enter Telegram bot token: ")
-    config['DEFAULT']['CHAT_ID'] = input("Enter telegram channel ID (e.g., -1234567890123): ")
-    installation_id = input("Enter your installation ID (Refer to Victron documentation https://www.victronenergy.com/media/pg/VRM_Portal_manual/en/introduction.html): ")
+    def get_input(prompt, current_value):
+        def prefill_input(text):
+            def hook():
+                readline.insert_text(text)
+                readline.redisplay()
+            return hook
+
+        readline.set_pre_input_hook(prefill_input(current_value))
+        try:
+            return input(f"{prompt}: ") or current_value
+        finally:
+            readline.set_pre_input_hook()  # Reset the hook after input
+
+    config['DEFAULT']['TELEGRAM_TOKEN'] = get_input("Enter Telegram bot token", config['DEFAULT']['TELEGRAM_TOKEN'])
+    config['DEFAULT']['CHAT_ID'] = get_input("Enter telegram channel ID (e.g., -1234567890123)", config['DEFAULT']['CHAT_ID'])
+
+    installation_id = get_input("Enter your installation ID (Refer to Victron documentation)", config['DEFAULT']['INSTALLATION_ID'])
     config['DEFAULT']['INSTALLATION_ID'] = installation_id
     config['DEFAULT']['VICTRON_API_URL'] = f"https://vrmapi.victronenergy.com/v2/installations/{installation_id}/diagnostics"
-    config['DEFAULT']['API_KEY'] = input("Enter Victron API token (Refer to Victron API doumentation https://vrm-api-docs.victronenergy.com/): ")
-    config['DEFAULT']['REFRESH_PERIOD'] = input("Enter refresh period in seconds (e.g., 5): ") or config['DEFAULT']['REFRESH_PERIOD']
-    config['DEFAULT']['MAX_POWER'] = input("Enter max output power supported by your device in WATTS (W) (e.g., 4000): ") or config['DEFAULT']['MAX_POWER']
-    config['DEFAULT']['PASSTHRU_CURRENT'] = input("Enter max output current supported by your device in AMPS (A) in passthru mode (e.g., 50): ") or config['DEFAULT']['PASSTHRU_CURRENT']
-    config['DEFAULT']['NOMINAL_VOLTAGE'] = input("Enter nominal voltage in VOLTS (V) (e.g., 230): ") or config['DEFAULT']['NOMINAL_VOLTAGE']
-    config['DEFAULT']['TIMEZONE'] = input("Enter timezone (e.g., Europe/Kyiv. Refer to TZ list in Wilipedia https://en.wikipedia.org/wiki/List_of_tz_database_time_zones): ") or config['DEFAULT']['TIMEZONE']
-    config['DEFAULT']['LANGUAGE'] = 'en'  # Default language
+
+    config['DEFAULT']['API_KEY'] = get_input("Enter Victron API token", config['DEFAULT']['API_KEY'])
+    config['DEFAULT']['REFRESH_PERIOD'] = get_input("Enter refresh period in seconds (e.g., 5)", config['DEFAULT']['REFRESH_PERIOD'])
+    config['DEFAULT']['MAX_POWER'] = get_input("Enter max output power supported by your device in WATTS (W)", config['DEFAULT']['MAX_POWER'])
+    config['DEFAULT']['PASSTHRU_CURRENT'] = get_input("Enter max output current supported by your device in AMPS (A)", config['DEFAULT']['PASSTHRU_CURRENT'])
+    config['DEFAULT']['NOMINAL_VOLTAGE'] = get_input("Enter nominal voltage in VOLTS (V)", config['DEFAULT']['NOMINAL_VOLTAGE'])
+    config['DEFAULT']['TIMEZONE'] = get_input("Enter timezone (e.g., Europe/Kyiv)", config['DEFAULT']['TIMEZONE'])
+    config['DEFAULT']['LANGUAGE'] = get_input("Select message language (en or uk)", config['DEFAULT']['LANGUAGE'])
+
     save_config(config)
     print("Configuration saved successfully.")
 
