@@ -327,13 +327,16 @@ def main():
         config = load_config()
         quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
             if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
+
+        current_language = config['DEFAULT'].get('LANGUAGE', 'en')
+        language_name = "Українська" if current_language == 'uk' else "English"
         
         service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
         
         print("Please choose an option:")
         print(f"1. Configuration")
         print(f"2. Enable or disable service at startup {service_status}")
-        print(f"3. Language menu")
+        print(f"3. Message language ({language_name})")
         print(f"4. Set Quiet Hours ({quiet_hours_status})")
         print("5. Check Status")
         print("6. View Logs")
