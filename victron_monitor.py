@@ -162,11 +162,11 @@ def load_messages(config):
             'VE_BUS_RECOVERY_MSG': '🔧 Система відновлена після помилки.\n{timestamp}',
             'LOW_BATTERY_MSG': '🪫 Низький заряд батареї!\n{timestamp}',
             'CRITICAL_BATTERY_MSG': '‼️🪫 Критичний заряд батареї!\n{timestamp}',
-            'VOLTAGE_LOW_MSG': '📉 Вхідна напруга на {phase}-й фазі занадто низька: {voltage[0]}V.\n{timestamp}',
-            'VOLTAGE_HIGH_MSG': '📈 Вхідна напруга на {phase}-й фазі занадто висока: {voltage[0]}V.\n{timestamp}',
-            'VOLTAGE_NORMAL_MSG': '🆗 Вхідна напруга на {phase}-й фазі в межах норми: {voltage[0]}V.\n{timestamp}',
-            'CRITICAL_LOAD_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power:.2f}W.\nЗменшіть споживання.\n{timestamp}',
-            'PASSTHRU_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power:.2f}W.\nЗменшіть споживання.\n{timestamp}'
+            'VOLTAGE_LOW_MSG': '📉 Вхідна напруга на {phase}-й фазі занадто низька: {voltage}V.\n{timestamp}',
+            'VOLTAGE_HIGH_MSG': '📈 Вхідна напруга на {phase}-й фазі занадто висока: {voltage}V.\n{timestamp}',
+            'VOLTAGE_NORMAL_MSG': '🆗 Вхідна напруга на {phase}-й фазі в межах норми: {voltage}V.\n{timestamp}',
+            'CRITICAL_LOAD_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power}W.\nЗменшіть споживання.\n{timestamp}',
+            'PASSTHRU_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power}W.\nЗменшіть споживання.\n{timestamp}'
         }
     else:
         messages = {
@@ -176,11 +176,11 @@ def load_messages(config):
             'VE_BUS_RECOVERY_MSG': '🔧 System recovered from error.\n{timestamp}',
             'LOW_BATTERY_MSG': '🪫 Low battery level!\n{timestamp}',
             'CRITICAL_BATTERY_MSG': '‼️🪫 Critical battery level!\n{timestamp}',
-            'VOLTAGE_LOW_MSG': '📉 Input voltage on phase {phase} is too low: {voltage[0]}V.\n{timestamp}',
-            'VOLTAGE_HIGH_MSG': '📈 Input voltage on phase {phase} is too high: {voltage[0]}V.\n{timestamp}',
-            'VOLTAGE_NORMAL_MSG': '🆗 Input voltage on phase {phase} is within normal range: {voltage[0]}V.\n{timestamp}',
-            'CRITICAL_LOAD_MSG': '‼️ Critical load on phase {phase}: {power:.2f}W.\nReduce consumption.\n{timestamp}',
-            'PASSTHRU_MSG': '‼️ Critical load on phase {phase}: {power:.2f}W.\nReduce consumption.\n{timestamp}'
+            'VOLTAGE_LOW_MSG': '📉 Input voltage on phase {phase} is too low: {voltage}V.\n{timestamp}',
+            'VOLTAGE_HIGH_MSG': '📈 Input voltage on phase {phase} is too high: {voltage}V.\n{timestamp}',
+            'VOLTAGE_NORMAL_MSG': '🆗 Input voltage on phase {phase} is within normal range: {voltage}V.\n{timestamp}',
+            'CRITICAL_LOAD_MSG': '‼️ Critical load on phase {phase}: {power}W.\nReduce consumption.\n{timestamp}',
+            'PASSTHRU_MSG': '‼️ Critical load on phase {phase}: {power}W.\nReduce consumption.\n{timestamp}'
         }
 
     return messages
@@ -537,31 +537,37 @@ async def monitor():
                 voltage_normal_low = nominal_voltage * 0.957  # 4.3% less than nominal voltage
                 voltage_normal_high = nominal_voltage * 1.043  # 4.3% more than nominal voltage
 
-                if voltage is not None and voltage[0] > 0:  # Check if voltage is greater than 0
+                if voltage is not None and voltage[0] > 0:  # Check if voltage (rawValue) is greater than 0
+                    # Handle low voltage
                     if voltage[0] < voltage_low_threshold and not voltage_issue_reported[phase]:
-                        message = messages['VOLTAGE_LOW_MSG'].replace('{phase}', str(phase)).replace('{voltage}', str(voltage[0])).replace('{timestamp}', timestamp)
+                        message = messages['VOLTAGE_LOW_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
                         await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                         voltage_issue_reported[phase] = True
+                    
+                    # Handle high voltage
                     elif voltage[0] > voltage_high_threshold and not voltage_issue_reported[phase]:
-                        message = messages['VOLTAGE_HIGH_MSG'].replace('{phase}', str(phase)).replace('{voltage}', str(voltage[0])).replace('{timestamp}', timestamp)
+                        message = messages['VOLTAGE_HIGH_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
                         await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                         voltage_issue_reported[phase] = True
+
+                    # Handle voltage back to normal range
                     elif voltage_normal_low <= voltage[0] <= voltage_normal_high and voltage_issue_reported[phase]:
-                        message = messages['VOLTAGE_NORMAL_MSG'].replace('{phase}', str(phase)).replace('{voltage}', str(voltage[0])).replace('{timestamp}', timestamp)
+                        message = messages['VOLTAGE_NORMAL_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
                         await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                         voltage_issue_reported[phase] = False
 
                 last_voltage_phases[phase] = voltage
 
             # Check power consumption on each phase if the grid is absent
-            if grid_status and grid_status[0] == 2:
+            if grid_status and grid_status[0] == 2:  # Assuming grid_status[0] == 2 means grid is down
                 for phase in range(1, 4):
                     if output_voltages[phase] is not None and output_currents[phase] is not None:
+                        # Calculate power consumption by multiplying voltage and current
                         power = output_voltages[phase][0] * output_currents[phase][0]
                         max_power = float(settings['MAX_POWER'])
                         power_limit = max_power * 0.98  # 2% less than MAX_POWER
                         power_reset_threshold = max_power * 0.80  # 20% less than MAX_POWER
-                        
+
                         if power > power_limit:
                             power_issue_counters[phase] += 1
                             if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:  # If power > power_limit for 2 refreshes
@@ -569,12 +575,12 @@ async def monitor():
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                                 power_issue_reported[phase] = True
                         elif power < power_reset_threshold:
-                            power_issue_counters[phase] = 0  # Reset the counter if power drops below power_reset_threshold
-                            power_issue_reported[phase] = False  # Reset the reported flag to allow future alerts
+                            power_issue_counters[phase] = 0
+                            power_issue_reported[phase] = False
                     else:
-                        power_issue_counters[phase] = 0  # Reset the counter if there's no valid data for the phase
+                        power_issue_counters[phase] = 0
 
-             # Check power consumption on each phase if the VE.Bus state is "Passthru"
+            # Check power consumption on each phase if the VE.Bus state is "Passthru"
             if ve_bus_state == PASSTHRU_STATE:
                 for phase in range(1, 4):
                     if output_voltages[phase] is not None and output_currents[phase] is not None:
@@ -586,14 +592,15 @@ async def monitor():
                         if power > passthru_current_limit:
                             power_issue_counters[phase] += 1
                             if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:
+                                # Format the message with the actual power value
                                 message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{power}', f"{power:.2f}").replace('{timestamp}', timestamp)
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                                 power_issue_reported[phase] = True
                         elif power < passthru_current_reset_threshold:
-                            power_issue_counters[phase] = 0  # Reset the counter if power drops below the reset threshold
-                            power_issue_reported[phase] = False  # Reset the reported flag to allow future alerts
+                            power_issue_counters[phase] = 0
+                            power_issue_reported[phase] = False
                     else:
-                        power_issue_counters[phase] = 0  # Reset the counter if there's no valid data for the phase
+                        power_issue_counters[phase] = 0
 
 
             await asyncio.sleep(REFRESH_PERIOD)
