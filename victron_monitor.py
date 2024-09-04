@@ -460,32 +460,33 @@ async def monitor():
     power_issue_counters = {1: 0, 2: 0, 3: 0}
     power_issue_reported = {1: False, 2: False, 3: False}
     first_run = True  # Flag to indicate the first run
-    config = load_config()
-    settings = config['DEFAULT']
-    messages = load_messages(config)
-
-    TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
-    CHAT_ID = settings['CHAT_ID']
-    VICTRON_API_URL = settings['VICTRON_API_URL']
-    API_KEY = settings['API_KEY']
-    REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
-    TIMEZONE = settings['TIMEZONE']
-    
-    # Check if essential configuration values are set
-    if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
-        logging.error("Essential configuration values are missing. Please set them in the configuration.")
-        return  # Exit the monitoring function without running it
-
-    try:
-        bot = Bot(token=TELEGRAM_TOKEN)
-    except telegram.error.InvalidToken:
-        logging.error("Invalid Telegram token provided. Please check your configuration.")
-        return
-
-    local_tz = pytz.timezone(TIMEZONE)
 
     while True:
         try:
+            config = load_config()
+            settings = config['DEFAULT']
+            messages = load_messages(config)
+
+            TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
+            CHAT_ID = settings['CHAT_ID']
+            VICTRON_API_URL = settings['VICTRON_API_URL']
+            API_KEY = settings['API_KEY']
+            REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
+            TIMEZONE = settings['TIMEZONE']
+            
+            # Check if essential configuration values are set
+            if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
+                logging.error("Essential configuration values are missing. Please set them in the configuration.")
+                return  # Exit the monitoring function without running it
+
+            try:
+                bot = Bot(token=TELEGRAM_TOKEN)
+            except telegram.error.InvalidToken:
+                logging.error("Invalid Telegram token provided. Please check your configuration.")
+                return
+
+            local_tz = pytz.timezone(TIMEZONE)
+            
             # Fetch the current status from the Victron API
             grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
             timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
