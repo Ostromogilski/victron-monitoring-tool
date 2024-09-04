@@ -28,7 +28,7 @@ OUTPUT_CURRENT_PHASE_1_ID = 23
 OUTPUT_CURRENT_PHASE_2_ID = 24
 OUTPUT_CURRENT_PHASE_3_ID = 25
 VE_BUS_STATE_ID = 40
-PASSTHRU_STATE = 8
+PASSTHRU_STATE = 9
 
 # Set up logging with rotation
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -592,7 +592,7 @@ async def monitor():
                         power_issue_counters[phase] = 0
 
             # Check power consumption on each phase if the VE.Bus state is "Passthru"
-            if ve_bus_state == PASSTHRU_STATE:
+            if ve_bus_state != PASSTHRU_STATE:
                 for phase in range(1, 4):
                     if output_voltages[phase] is not None and output_currents[phase] is not None:
                         # Calculate power by multiplying the voltage and current for the phase
