@@ -173,7 +173,7 @@ def load_messages(config):
             'VOLTAGE_HIGH_MSG': '📈 Вхідна напруга на {phase}-й фазі занадто висока: {voltage}V.\n{timestamp}',
             'VOLTAGE_NORMAL_MSG': '🆗 Вхідна напруга на {phase}-й фазі в межах норми: {voltage}V.\n{timestamp}',
             'CRITICAL_LOAD_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power}W.\nЗменшіть споживання.\n{timestamp}',
-            'PASSTHRU_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {power}W.\nЗменшіть споживання.\n{timestamp}'
+            'PASSTHRU_MSG': '‼️ Критичне навантаження на {phase}-й фазі: {current}A.\nЗменшіть споживання.\n{timestamp}'
         }
     else:
         messages = {
@@ -187,7 +187,7 @@ def load_messages(config):
             'VOLTAGE_HIGH_MSG': '📈 Input voltage on phase {phase} is too high: {voltage}V.\n{timestamp}',
             'VOLTAGE_NORMAL_MSG': '🆗 Input voltage on phase {phase} is within normal range: {voltage}V.\n{timestamp}',
             'CRITICAL_LOAD_MSG': '‼️ Critical load on phase {phase}: {power}W.\nReduce consumption.\n{timestamp}',
-            'PASSTHRU_MSG': '‼️ Critical load on phase {phase}: {power}W.\nReduce consumption.\n{timestamp}'
+            'PASSTHRU_MSG': '‼️ Critical load on phase {phase}: {current}A.\nReduce consumption.\n{timestamp}'
         }
 
     return messages
@@ -582,6 +582,7 @@ async def monitor():
                         if power > power_limit:
                             power_issue_counters[phase] += 1
                             if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:  # If power > power_limit for 2 refreshes
+                                logging.info(f"Phase {phase} - MAX POWER ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {output_currents[phase][0]}A, Power: {power:.2f}W")
                                 message = messages['CRITICAL_LOAD_MSG'].replace('{phase}', str(phase)).replace('{power}', f"{power:.2f}").replace('{timestamp}', timestamp)
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                                 power_issue_reported[phase] = True
@@ -595,19 +596,19 @@ async def monitor():
             if ve_bus_state != PASSTHRU_STATE:
                 for phase in range(1, 4):
                     if output_voltages[phase] is not None and output_currents[phase] is not None:
-                        # Calculate power by multiplying the voltage and current for the phase
-                        power = output_voltages[phase][0] * output_currents[phase][0]
+                        current = output_currents[phase][0]
+
                         passthru_current_limit = float(settings['PASSTHRU_CURRENT']) * 0.98  # 2% less than PASSTHRU_CURRENT
                         passthru_current_reset_threshold = float(settings['PASSTHRU_CURRENT']) * 0.85  # 15% less than PASSTHRU_CURRENT
-                        
-                        if power > passthru_current_limit:
+
+                        if current > passthru_current_limit:
                             power_issue_counters[phase] += 1
                             if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:
-                                # Format the message with the actual power value
-                                message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{power}', f"{power:.2f}").replace('{timestamp}', timestamp)
+                                logging.info(f"Phase {phase} - PASSTHRU MAX CURRENT ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {current:.2f}A")
+                                message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{current}', f"{current:.2f}A").replace('{timestamp}', timestamp)
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
                                 power_issue_reported[phase] = True
-                        elif power < passthru_current_reset_threshold:
+                        elif current < passthru_current_reset_threshold:
                             power_issue_counters[phase] = 0
                             power_issue_reported[phase] = False
                     else:
