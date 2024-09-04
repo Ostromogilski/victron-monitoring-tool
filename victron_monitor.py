@@ -46,23 +46,13 @@ DEFAULT_SETTINGS = {
     'VICTRON_API_URL': '',
     'API_KEY': '',
     'REFRESH_PERIOD': '5',  # Default refresh period set to 5 seconds
-    'GRID_DOWN_MSG': '⚠️ Grid is down!',
-    'GRID_UP_MSG': '✅ Grid is restored!',
-    'LOW_BATTERY_MSG': '🪫 Low battery level!',
-    'CRITICAL_BATTERY_MSG': '‼️🪫 Critical battery level!',
-    'VE_BUS_ERROR_MSG': '🚨 Error: {error}.',
-    'VE_BUS_RECOVERY_MSG': '🔧 System recovered from error.',
-    'VOLTAGE_LOW_MSG': '📉 Input voltage on phase {phase} is too low: {voltage}V.',
-    'VOLTAGE_HIGH_MSG': '📈 Input voltage on phase {phase} is too high: {voltage}V.',
-    'VOLTAGE_NORMAL_MSG': '🆗 Input voltage on phase {phase} is within normal range: {voltage}V.',
-    'CRITICAL_LOAD_MSG': '‼️ Critical load on phase {phase}: {power:.2f}W. Reduce consumption.',
-    'PASSTHRU_MSG': '‼️ Critical load on phase {phase}: {power:.2f}W. Reduce consumption.',
     'MAX_POWER': '',
     'PASSTHRU_CURRENT': '',
     'NOMINAL_VOLTAGE': '230',
     'QUIET_HOURS_START': '',
     'QUIET_HOURS_END': '',
-    'TIMEZONE': 'UTC'
+    'TIMEZONE': 'UTC',
+    'LANGUAGE': 'en'
 }
 
 # Function to create a default configuration file if it doesn't exist
@@ -146,7 +136,6 @@ def setup_config():
     config['DEFAULT']['PASSTHRU_CURRENT'] = get_input("Enter max output current supported by your device in AMPS (A)", config['DEFAULT']['PASSTHRU_CURRENT'])
     config['DEFAULT']['NOMINAL_VOLTAGE'] = get_input("Enter nominal voltage in VOLTS (V)", config['DEFAULT']['NOMINAL_VOLTAGE'])
     config['DEFAULT']['TIMEZONE'] = get_input("Enter timezone (e.g., Europe/Kyiv)", config['DEFAULT']['TIMEZONE'])
-    config['DEFAULT']['LANGUAGE'] = get_input("Select message language (en or uk)", config['DEFAULT']['LANGUAGE'])
 
     save_config(config)
     print("Configuration saved successfully.")

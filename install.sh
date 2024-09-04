@@ -70,25 +70,5 @@ else
     exit 1
 fi
 
-# Create default settings.ini file if it doesn't exist
-if [ ! -f settings.ini ]; then
-    echo "Creating default settings.ini..."
-    cat <<EOL > settings.ini
-[DEFAULT]
-TELEGRAM_TOKEN =
-CHAT_ID =
-VICTRON_API_URL =
-API_KEY =
-REFRESH_PERIOD = 5
-MAX_POWER =
-PASSTHRU_CURRENT =
-NOMINAL_VOLTAGE = 230
-TIMEZONE = UTC
-EOL
-    echo "Default settings.ini created."
-else
-    echo "settings.ini already exists, skipping creation."
-fi
-
 echo "Installation complete."
 echo "Please run the \`victron_monitor\` command and choose '1. Configuration' to complete the initial setup."
