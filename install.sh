@@ -6,6 +6,7 @@ INSTALL_DIR="/opt/victron-monitoring-tool"
 CONFIG_FILE="$INSTALL_DIR/settings.ini"
 SERVICE_NAME="victron_monitor.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+BIN_FILE="/usr/local/bin/victron_monitor"
 
 # Default settings for settings.ini
 DEFAULT_SETTINGS=$(cat <<EOF
@@ -61,7 +62,7 @@ if [ -d "$INSTALL_DIR" ]; then
             fi
 
             # Ensure settings.ini is preserved, or create a new one if missing
-            if [ -f "$CONFIG_FILE" ]; then
+            if [ -f "$CONFIG_FILE" ];then
                 echo "settings.ini preserved."
             else
                 echo "Creating a new settings.ini file with default values..."
@@ -114,20 +115,26 @@ if [ -d "$INSTALL_DIR" ]; then
                 systemctl stop "$SERVICE_NAME"
             fi
 
-            echo "Disabling the service..."
-            systemctl disable "$SERVICE_NAME"
-
-            # Remove the service file
             if [ -f "$SERVICE_FILE" ]; then
+                echo "Disabling the service..."
+                systemctl disable "$SERVICE_NAME"
                 echo "Removing service file..."
                 rm -f "$SERVICE_FILE"
                 systemctl daemon-reload
+            else
+                echo "Service file does not exist, skipping."
             fi
 
             # Remove installation directory and its contents
             if [ -d "$INSTALL_DIR" ]; then
                 echo "Removing application files..."
                 rm -rf "$INSTALL_DIR"
+            fi
+
+            # Remove the binary or symlink from /usr/local/bin
+            if [ -f "$BIN_FILE" ]; then
+                echo "Removing victron_monitor from /usr/local/bin..."
+                rm -f "$BIN_FILE"
             fi
 
             echo "Uninstallation complete."
