@@ -7,6 +7,25 @@ CONFIG_FILE="$INSTALL_DIR/settings.ini"
 SERVICE_NAME="victron_monitor.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 
+# Default settings for settings.ini
+DEFAULT_SETTINGS=$(cat <<EOF
+[DEFAULT]
+TELEGRAM_TOKEN=
+CHAT_ID=
+VICTRON_API_URL=
+API_KEY=
+REFRESH_PERIOD=5
+MAX_POWER=
+PASSTHRU_CURRENT=
+NOMINAL_VOLTAGE=230
+QUIET_HOURS_START=
+QUIET_HOURS_END=
+TIMEZONE=UTC
+LANGUAGE=en
+INSTALLATION_ID=
+EOF
+)
+
 # Ensure the script is running with sudo
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root (e.g., sudo bash <script>)"
@@ -41,12 +60,17 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
-            # Ensure settings.ini is not overwritten
-            if [ ! -f "$CONFIG_FILE" ]; then
-                echo "Error: settings.ini not found. Exiting update."
-                exit 1
+            # Ensure settings.ini is preserved, or create a new one if missing
+            if [ -f "$CONFIG_FILE" ]; then
+                echo "settings.ini preserved."
+            else
+                echo "Settings file doesn't exist. Creating a new settings.ini file with default values..."
+                echo "$DEFAULT_SETTINGS" > "$CONFIG_FILE"
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to create settings.ini."
+                    exit 1
+                fi
             fi
-            echo "settings.ini preserved."
 
             # Install required Python packages
             echo "Installing required Python packages..."
