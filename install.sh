@@ -69,17 +69,23 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
-            # Reinitialize /usr/local/bin/victron_monitor during the update
+            # Ensure victron_monitor.py has a Python shebang
             if [ -f "$INSTALL_DIR/victron_monitor.py" ]; then
-                echo "Reinitializing victron_monitor in /usr/local/bin..."
-                chmod +x "$INSTALL_DIR/victron_monitor.py"
-                sudo cp "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
-                if [ $? -ne 0 ]; then
-                    echo "Error: Failed to reinitialize victron_monitor."
-                    exit 1
+                if ! grep -q "^#!/usr/bin/env python3" "$INSTALL_DIR/victron_monitor.py"; then
+                    echo "Adding Python shebang to victron_monitor.py..."
+                    sed -i '1s|^|#!/usr/bin/env python3\n|' "$INSTALL_DIR/victron_monitor.py"
                 fi
             else
                 echo "Error: victron_monitor.py not found!"
+                exit 1
+            fi
+
+            # Reinitialize /usr/local/bin/victron_monitor during the update
+            echo "Reinitializing victron_monitor in /usr/local/bin..."
+            chmod +x "$INSTALL_DIR/victron_monitor.py"
+            sudo cp "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to reinitialize victron_monitor."
                 exit 1
             fi
 
