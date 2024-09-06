@@ -27,7 +27,7 @@ if [ -d "$INSTALL_DIR" ]; then
     echo "1. Update (keeps settings.ini and restarts the service)"
     echo "2. Uninstall (removes all files and disables the service)"
     echo "3. Cancel"
-    read -p "Enter your choice [1-3]: " choice
+    read -r -p "Enter your choice [1-3]: " choice
 
     case $choice in
         1)
