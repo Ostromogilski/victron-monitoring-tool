@@ -3,7 +3,8 @@
 # Define repository URL and installation directory
 REPO_URL="https://github.com/Ostromogilski/victron-monitoring-tool.git"
 INSTALL_DIR="/opt/victron-monitoring-tool"
-CONFIG_FILE="$INSTALL_DIR/settings.ini"
+CONFIG_DIR="$HOME/victron_monitor"
+CONFIG_FILE="$CONFIG_DIR/settings.ini"
 SERVICE_NAME="victron_monitor.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 BIN_FILE="/usr/local/bin/victron_monitor"
@@ -61,21 +62,22 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
-            # Ensure settings.ini is preserved, or create a new one if missing
-            if [ -f "$CONFIG_FILE" ];then
-                echo "settings.ini preserved."
+            # Ensure settings.ini is preserved, or create a new one if missing in the correct directory
+            if [ -f "$CONFIG_FILE" ]; then
+                echo "settings.ini preserved in $CONFIG_FILE."
             else
-                echo "Creating a new settings.ini file with default values..."
+                echo "Creating a new settings.ini file with default values in $CONFIG_FILE..."
+                mkdir -p "$CONFIG_DIR"
                 echo "$DEFAULT_SETTINGS" > "$CONFIG_FILE"
                 if [ $? -ne 0 ]; then
-                    echo "Error: Failed to create settings.ini."
+                    echo "Error: Failed to create settings.ini in $CONFIG_FILE."
                     exit 1
                 fi
             fi
 
-            # Overwrite the existing files (except settings.ini) with new ones
+            # Overwrite the existing files (except settings.ini) with new ones using rsync
             echo "Overwriting existing files..."
-            cp -r * /opt/victron-monitoring-tool/ --exclude settings.ini
+            rsync -av --exclude 'settings.ini' . "$INSTALL_DIR/"
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to overwrite existing files."
                 exit 1
@@ -144,6 +146,14 @@ if [ -d "$INSTALL_DIR" ]; then
                 fi
             else
                 echo "victron_monitor does not exist in /usr/local/bin, skipping."
+            fi
+
+            # Remove the settings directory created by the Python script
+            if [ -d "$CONFIG_DIR" ]; then
+                echo "Removing configuration directory $CONFIG_DIR..."
+                rm -rf "$CONFIG_DIR"
+            else
+                echo "$CONFIG_DIR does not exist, skipping."
             fi
 
             echo "Uninstallation complete."
