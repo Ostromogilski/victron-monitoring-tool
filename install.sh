@@ -113,17 +113,22 @@ if [ -d "$INSTALL_DIR" ]; then
                 echo "Stopping the service..."
                 systemctl stop "$SERVICE_NAME"
             fi
+
             echo "Disabling the service..."
             systemctl disable "$SERVICE_NAME"
 
-            # Remove service file
-            echo "Removing service file..."
-            rm -f "$SERVICE_FILE"
-            systemctl daemon-reload
+            # Remove the service file
+            if [ -f "$SERVICE_FILE" ]; then
+                echo "Removing service file..."
+                rm -f "$SERVICE_FILE"
+                systemctl daemon-reload
+            fi
 
-            # Remove installation directory
-            echo "Removing application files..."
-            rm -rf "$INSTALL_DIR"
+            # Remove installation directory and its contents
+            if [ -d "$INSTALL_DIR" ]; then
+                echo "Removing application files..."
+                rm -rf "$INSTALL_DIR"
+            fi
 
             echo "Uninstallation complete."
             ;;
