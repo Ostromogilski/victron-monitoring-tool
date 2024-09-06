@@ -345,7 +345,7 @@ def main():
         
         service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
         
-        print(f"Victron Monitoring Service - Status: {service_running_status}")
+        print(f"Status: {service_running_status}")
         print("Please choose an option:")
         print(f"1. Configuration")
         print(f"2. Enable or disable service at startup {service_status}")
