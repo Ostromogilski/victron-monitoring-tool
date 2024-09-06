@@ -29,6 +29,9 @@ OUTPUT_CURRENT_PHASE_2_ID = 24
 OUTPUT_CURRENT_PHASE_3_ID = 25
 VE_BUS_STATE_ID = 40
 PASSTHRU_STATE = 9
+GREEN_TEXT = '\033[92m'
+RED_TEXT = '\033[91m'
+RESET_TEXT = '\033[0m'
 
 # Set up logging with rotation
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -141,11 +144,9 @@ def setup_config():
     save_config(config)
     print("Configuration saved successfully.")
 
-# Function to setup language
 def setup_language():
     config = load_config()
 
-    # Language selection
     print("Select your preferred language:")
     print("1. English (default)")
     print("2. Українська (Ukrainian)")
@@ -165,7 +166,7 @@ def load_messages(config):
         messages = {
             'GRID_DOWN_MSG': '⚠️ Мережа відсутня!\n{timestamp}',
             'GRID_UP_MSG': '✅ Мережа відновлена!\n{timestamp}',
-            'VE_BUS_ERROR_MSG': '🚨 Помилка:\n{ve_bus_status[1]}.\n{timestamp}',
+            'VE_BUS_ERROR_MSG': '🚨 Помилка:\n{error}.\n{timestamp}',
             'VE_BUS_RECOVERY_MSG': '🔧 Система відновлена після помилки.\n{timestamp}',
             'LOW_BATTERY_MSG': '🪫 Низький заряд батареї!\n{timestamp}',
             'CRITICAL_BATTERY_MSG': '‼️🪫 Критичний заряд батареї!\n{timestamp}',
@@ -179,7 +180,7 @@ def load_messages(config):
         messages = {
             'GRID_DOWN_MSG': '⚠️ Grid is down!\n{timestamp}',
             'GRID_UP_MSG': '✅ Grid is restored!\n{timestamp}',
-            'VE_BUS_ERROR_MSG': '🚨 Error: {error}.\n{timestamp}',
+            'VE_BUS_ERROR_MSG': '🚨 Error:\n{error}.\n{timestamp}',
             'VE_BUS_RECOVERY_MSG': '🔧 System recovered from error.\n{timestamp}',
             'LOW_BATTERY_MSG': '🪫 Low battery level!\n{timestamp}',
             'CRITICAL_BATTERY_MSG': '‼️🪫 Critical battery level!\n{timestamp}',
@@ -192,7 +193,6 @@ def load_messages(config):
 
     return messages
 
-# Function to enable service at startup (placeholder for actual implementation)
 SERVICE_NAME = 'victron_monitor.service'
 SERVICE_FILE = f'/etc/systemd/system/{SERVICE_NAME}'
 
@@ -271,16 +271,6 @@ def disable_startup():
     else:
         print("Service is already disabled.")
 
-def check_status():
-    if is_service_enabled():
-        status = subprocess.run(['systemctl', 'is-active', SERVICE_NAME], capture_output=True, text=True)
-        if status.stdout.strip() == "active":
-            print("Service is currently running.")
-        else:
-            print("Service is enabled but not running.")
-    else:
-        print("Service is not enabled.")
-
 def view_logs():
     if is_service_enabled():
         print("Fetching logs for the Victron Monitoring Tool...")
@@ -317,7 +307,27 @@ def setup_quiet_hours():
     save_config(config)
     print("Quiet Hours configuration saved successfully.")
 
-# Function to handle CLI arguments and menu
+def get_service_running_status():
+    if is_service_enabled():
+        status = subprocess.run(['systemctl', 'is-active', SERVICE_NAME], capture_output=True, text=True)
+        if status.stdout.strip() == "active":
+            return f"{GREEN_TEXT}Running{RESET_TEXT}"
+        else:
+            return f"{RED_TEXT}Stopped{RESET_TEXT}"
+    else:
+        return f"{RED_TEXT}Stopped{RESET_TEXT}"
+
+def restart_service():
+    if is_service_enabled():
+        try:
+            subprocess.run(['sudo', 'systemctl', 'restart', SERVICE_NAME], check=True)
+            print("Service restarted successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to restart service: {e}")
+    else:
+        print("Service is not enabled.")
+
+# Main menu
 def main():
     if not sys.stdin.isatty():
         print("Running in non-interactive mode. Skipping the menu.")
@@ -331,14 +341,17 @@ def main():
         current_language = config['DEFAULT'].get('LANGUAGE', 'en')
         language_name = "Українська" if current_language == 'uk' else "English"
         
+        service_running_status = get_service_running_status()
+        
         service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
         
+        print(f"Victron Monitoring Service - Status: {service_running_status}")
         print("Please choose an option:")
         print(f"1. Configuration")
         print(f"2. Enable or disable service at startup {service_status}")
         print(f"3. Message language ({language_name})")
         print(f"4. Set Quiet Hours ({quiet_hours_status})")
-        print("5. Check Status")
+        print("5. Restart Service")
         print("6. View Logs")
         print("7. Exit")
         
@@ -357,7 +370,7 @@ def main():
         elif choice == '4':
             setup_quiet_hours()
         elif choice == '5':
-            check_status()
+            restart_service()
         elif choice == '6':
             view_logs()
         elif choice == '7':
