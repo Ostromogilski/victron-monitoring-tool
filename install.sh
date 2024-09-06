@@ -64,12 +64,20 @@ if [ -d "$INSTALL_DIR" ]; then
             if [ -f "$CONFIG_FILE" ]; then
                 echo "settings.ini preserved."
             else
-                echo "Settings file doesn't exist. Creating a new settings.ini file with default values..."
+                echo "Creating a new settings.ini file with default values..."
                 echo "$DEFAULT_SETTINGS" > "$CONFIG_FILE"
                 if [ $? -ne 0 ]; then
                     echo "Error: Failed to create settings.ini."
                     exit 1
                 fi
+            fi
+
+            # Overwrite the existing files (except settings.ini) with new ones
+            echo "Overwriting existing files..."
+            cp -r * /opt/victron-monitoring-tool/ --exclude settings.ini
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to overwrite existing files."
+                exit 1
             fi
 
             # Install required Python packages

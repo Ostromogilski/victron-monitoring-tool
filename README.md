@@ -23,7 +23,7 @@ This is a monitoring tool for Victron Energy systems that sends alerts to a spec
     Run the following command in your terminal to download and execute the installation script:
 
     ```bash
-    sudo curl -s https://raw.githubusercontent.com/Ostromogilski/victron-monitoring-tool/main/install.sh | sudo bash
+    sudo bash -c "$(curl -s https://raw.githubusercontent.com/Ostromogilski/victron-monitoring-tool/main/install.sh)"
     ```
 
     This script will install the necessary dependencies, make the Python script executable, and create a default `settings.ini` file if it doesn't already exist.
