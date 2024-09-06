@@ -69,6 +69,20 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
+            # Reinitialize /usr/local/bin/victron_monitor during the update
+            if [ -f "$INSTALL_DIR/victron_monitor.py" ]; then
+                echo "Reinitializing victron_monitor in /usr/local/bin..."
+                chmod +x "$INSTALL_DIR/victron_monitor.py"
+                sudo cp "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to reinitialize victron_monitor."
+                    exit 1
+                fi
+            else
+                echo "Error: victron_monitor.py not found!"
+                exit 1
+            fi
+
             # Install required Python packages
             echo "Installing required Python packages..."
             if pip3 install -r requirements.txt; then
