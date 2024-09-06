@@ -1,7 +1,17 @@
 #!/bin/bash
 
-# Get the original user's home directory, even when running under sudo
-USER_HOME=$(eval echo ~${SUDO_USER})
+# Check if the script is being run with sudo
+if [ "$EUID" -ne 0 ]; then
+  echo "Please run as root (e.g., sudo bash <script>)"
+  exit 1
+fi
+
+# Get the original user's home directory, explicitly using SUDO_USER
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(eval echo "~$SUDO_USER")
+else
+    USER_HOME=$HOME
+fi
 
 # Define repository URL and installation directory
 REPO_URL="https://github.com/Ostromogilski/victron-monitoring-tool.git"
@@ -31,12 +41,6 @@ INSTALLATION_ID=
 EOF
 )
 
-# Ensure the script is running with sudo
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root (e.g., sudo bash <script>)"
-  exit 1
-fi
-
 # Check for git installation
 if ! command -v git &> /dev/null
 then
@@ -62,27 +66,6 @@ if [ -d "$INSTALL_DIR" ]; then
             git pull
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to update the repository."
-                exit 1
-            fi
-
-            # Ensure settings.ini is preserved in the correct directory or create a new one if missing
-            if [ -f "$CONFIG_FILE" ]; then
-                echo "settings.ini preserved in $CONFIG_FILE."
-            else
-                echo "Creating a new settings.ini file with default values in $CONFIG_FILE..."
-                mkdir -p "$CONFIG_DIR"
-                echo "$DEFAULT_SETTINGS" > "$CONFIG_FILE"
-                if [ $? -ne 0 ]; then
-                    echo "Error: Failed to create settings.ini in $CONFIG_FILE."
-                    exit 1
-                fi
-            fi
-
-            # Overwrite the existing files (except settings.ini) with new ones using rsync
-            echo "Overwriting existing files..."
-            rsync -av --exclude 'settings.ini' . "$INSTALL_DIR/"
-            if [ $? -ne 0 ]; then
-                echo "Error: Failed to overwrite existing files."
                 exit 1
             fi
 
