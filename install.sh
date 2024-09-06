@@ -1,9 +1,12 @@
 #!/bin/bash
 
+# Get the original user's home directory, even when running under sudo
+USER_HOME=$(eval echo ~${SUDO_USER})
+
 # Define repository URL and installation directory
 REPO_URL="https://github.com/Ostromogilski/victron-monitoring-tool.git"
 INSTALL_DIR="/opt/victron-monitoring-tool"
-CONFIG_DIR="$HOME/victron_monitor"
+CONFIG_DIR="$USER_HOME/victron_monitor"
 CONFIG_FILE="$CONFIG_DIR/settings.ini"
 SERVICE_NAME="victron_monitor.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
