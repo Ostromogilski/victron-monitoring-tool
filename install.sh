@@ -69,6 +69,16 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
+            # If victron_monitor.py doesn't exist, attempt to re-download it from the repository
+            if [ ! -f "$INSTALL_DIR/victron_monitor.py" ]; then
+                echo "victron_monitor.py not found. Attempting to redownload..."
+                git checkout -- "$INSTALL_DIR/victron_monitor.py"
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to redownload victron_monitor.py from the repository."
+                    exit 1
+                fi
+            fi
+
             # Ensure victron_monitor.py has a Python shebang
             if [ -f "$INSTALL_DIR/victron_monitor.py" ]; then
                 if ! head -n 1 "$INSTALL_DIR/victron_monitor.py" | grep -q '^#!/usr/bin/env python3'; then
@@ -83,7 +93,7 @@ if [ -d "$INSTALL_DIR" ]; then
             # Reinitialize /usr/local/bin/victron_monitor during the update
             echo "Reinitializing victron_monitor in /usr/local/bin..."
             chmod +x "$INSTALL_DIR/victron_monitor.py"
-            sudo mv "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+            sudo cp "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to reinitialize victron_monitor."
                 exit 1
