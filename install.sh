@@ -129,12 +129,21 @@ if [ -d "$INSTALL_DIR" ]; then
             if [ -d "$INSTALL_DIR" ]; then
                 echo "Removing application files..."
                 rm -rf "$INSTALL_DIR"
+            else
+                echo "$INSTALL_DIR does not exist, skipping."
             fi
 
             # Remove the binary or symlink from /usr/local/bin
             if [ -f "$BIN_FILE" ]; then
                 echo "Removing victron_monitor from /usr/local/bin..."
                 rm -f "$BIN_FILE"
+                if [ ! -f "$BIN_FILE" ]; then
+                    echo "victron_monitor successfully removed from /usr/local/bin."
+                else
+                    echo "Failed to remove victron_monitor from /usr/local/bin."
+                fi
+            else
+                echo "victron_monitor does not exist in /usr/local/bin, skipping."
             fi
 
             echo "Uninstallation complete."
