@@ -62,7 +62,7 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
-            # Ensure settings.ini is preserved, or create a new one if missing in the correct directory
+            # Ensure settings.ini is preserved in the correct directory or create a new one if missing
             if [ -f "$CONFIG_FILE" ]; then
                 echo "settings.ini preserved in $CONFIG_FILE."
             else
