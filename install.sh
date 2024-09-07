@@ -90,12 +90,11 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
-            # Reinitialize /usr/local/bin/victron_monitor during the update
+            # Reinitialize /usr/local/bin/victron_monitor as a symlink to the script
             echo "Reinitializing victron_monitor in /usr/local/bin..."
-            chmod +x "$INSTALL_DIR/victron_monitor.py"
-            sudo cp "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+            sudo ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
             if [ $? -ne 0 ]; then
-                echo "Error: Failed to reinitialize victron_monitor."
+                echo "Error: Failed to create the symlink for victron_monitor."
                 exit 1
             fi
 
