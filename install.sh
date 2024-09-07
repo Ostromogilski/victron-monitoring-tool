@@ -61,22 +61,22 @@ if [ -d "$INSTALL_DIR" ]; then
         1)
             echo "Updating the application..."
 
-            # Pull the latest changes
+            # Ensure all files from the repository are up to date
+            echo "Ensuring all files from the repository are up to date..."
             cd "$INSTALL_DIR" || exit
+
+            # Reset local changes and make sure the repository is clean
+            git reset --hard
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to reset the repository to its latest state."
+                exit 1
+            fi
+
+            # Pull the latest changes from the repository
             git pull
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to update the repository."
                 exit 1
-            fi
-
-            # If victron_monitor.py doesn't exist, attempt to re-download it from the repository
-            if [ ! -f "$INSTALL_DIR/victron_monitor.py" ]; then
-                echo "victron_monitor.py not found. Attempting to redownload..."
-                git checkout -- "$INSTALL_DIR/victron_monitor.py"
-                if [ $? -ne 0 ]; then
-                    echo "Error: Failed to redownload victron_monitor.py from the repository."
-                    exit 1
-                fi
             fi
 
             # Ensure victron_monitor.py has a Python shebang
