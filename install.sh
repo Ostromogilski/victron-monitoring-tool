@@ -90,6 +90,10 @@ if [ -d "$INSTALL_DIR" ]; then
                 exit 1
             fi
 
+            # Ensure the target script is executable
+            echo "Making victron_monitor.py executable..."
+            sudo chmod +x "$INSTALL_DIR/victron_monitor.py"
+
             # Reinitialize /usr/local/bin/victron_monitor as a symlink to the script
             echo "Reinitializing victron_monitor in /usr/local/bin..."
             sudo ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
