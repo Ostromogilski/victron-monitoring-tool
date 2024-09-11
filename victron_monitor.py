@@ -56,7 +56,9 @@ DEFAULT_SETTINGS = {
     'QUIET_HOURS_END': '',
     'TIMEZONE': 'UTC',
     'LANGUAGE': 'en',
-    'INSTALLATION_ID': ''
+    'INSTALLATION_ID': '',
+    'VOLTAGE_HIGH_THRESHOLD': '1.10',
+    'VOLTAGE_LOW_THRESHOLD': '0.90'
 }
 
 # Function to create a default configuration file if it doesn't exist
@@ -129,17 +131,17 @@ def setup_config():
 
     config['DEFAULT']['TELEGRAM_TOKEN'] = get_input("Enter Telegram bot token", config['DEFAULT']['TELEGRAM_TOKEN'])
     config['DEFAULT']['CHAT_ID'] = get_input("Enter telegram channel ID (e.g., -1234567890123)", config['DEFAULT']['CHAT_ID'])
-
     installation_id = get_input("Enter your installation ID (Refer to Victron documentation)", config['DEFAULT']['INSTALLATION_ID'])
     config['DEFAULT']['INSTALLATION_ID'] = installation_id
     config['DEFAULT']['VICTRON_API_URL'] = f"https://vrmapi.victronenergy.com/v2/installations/{installation_id}/diagnostics"
-
     config['DEFAULT']['API_KEY'] = get_input("Enter Victron API token", config['DEFAULT']['API_KEY'])
     config['DEFAULT']['REFRESH_PERIOD'] = get_input("Enter refresh period in seconds (e.g., 5)", config['DEFAULT']['REFRESH_PERIOD'])
     config['DEFAULT']['MAX_POWER'] = get_input("Enter max output power supported by your device in WATTS (W)", config['DEFAULT']['MAX_POWER'])
     config['DEFAULT']['PASSTHRU_CURRENT'] = get_input("Enter max output current supported by your device in AMPS (A)", config['DEFAULT']['PASSTHRU_CURRENT'])
     config['DEFAULT']['NOMINAL_VOLTAGE'] = get_input("Enter nominal voltage in VOLTS (V)", config['DEFAULT']['NOMINAL_VOLTAGE'])
-    config['DEFAULT']['TIMEZONE'] = get_input("Enter timezone (e.g., Europe/Kyiv)", config['DEFAULT']['TIMEZONE'])
+    config['DEFAULT']['TIMEZONE'] = get_input("Enter timezone (e.g., Europe/Kyiv. Refer to https://www.php.net/manual/en/timezones.php)", config['DEFAULT']['TIMEZONE'])
+    config['DEFAULT']['VOLTAGE_HIGH_THRESHOLD'] = get_input("Enter high voltage threshold (e.g., 1.10 for 110%)", config['DEFAULT']['VOLTAGE_HIGH_THRESHOLD'])
+    config['DEFAULT']['VOLTAGE_LOW_THRESHOLD'] = get_input("Enter low voltage threshold (e.g., 0.90 for 90%)", config['DEFAULT']['VOLTAGE_LOW_THRESHOLD'])
 
     save_config(config)
     print("Configuration saved successfully.")
@@ -556,10 +558,10 @@ async def monitor():
 
                 # Load nominal voltage and calculate thresholds
                 nominal_voltage = float(settings['NOMINAL_VOLTAGE'])
-                voltage_low_threshold = nominal_voltage * 0.90  # 10% less than nominal voltage
-                voltage_high_threshold = nominal_voltage * 1.10  # 10% more than nominal voltage
-                voltage_normal_low = nominal_voltage * 0.957  # 4.3% less than nominal voltage
-                voltage_normal_high = nominal_voltage * 1.043  # 4.3% more than nominal voltage
+                voltage_low_threshold = nominal_voltage * float(settings['VOLTAGE_LOW_THRESHOLD'])
+                voltage_high_threshold = nominal_voltage * float(settings['VOLTAGE_HIGH_THRESHOLD'])
+                voltage_normal_low = nominal_voltage * 0.955  # 4.5% less than nominal voltage
+                voltage_normal_high = nominal_voltage * 1.045  # 4.5% more than nominal voltage
 
                 if voltage is not None and voltage[0] > 0:  # Check if voltage (rawValue) is greater than 0
                     # Handle low voltage
