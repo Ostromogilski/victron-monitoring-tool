@@ -91,8 +91,14 @@ if [ -d "$INSTALL_DIR" ]; then
                     exit 1
                 fi
             else
-                # Pull the latest changes from the repository
-                git pull origin main
+                # Ensure tracking information is set up for the main branch
+                echo "Setting upstream branch to 'origin/main'..."
+                git branch --set-upstream-to=origin/main main
+
+                # Fetch latest changes and reset the local repository to match the remote
+                echo "Fetching latest changes..."
+                git fetch origin
+                git reset --hard origin/main
                 if [ $? -ne 0 ]; then
                     echo "Error: Failed to update the repository."
                     exit 1
