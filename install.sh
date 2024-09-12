@@ -61,54 +61,22 @@ if [ -d "$INSTALL_DIR" ]; then
         1)
             echo "Updating the application..."
 
-            # Backup existing settings.ini
-            if [ -f "$CONFIG_FILE" ]; then
-                echo "Backing up current settings.ini..."
-                cp "$CONFIG_FILE" "$CONFIG_FILE.bak"
-            fi
-
             # Ensure all files from the repository are up to date
             echo "Ensuring all files from the repository are up to date..."
             cd "$INSTALL_DIR" || exit
 
-            # Attempt to reset local changes and capture errors
-            git reset --hard 2>&1 | tee git_output.log
-            if grep -q "fatal" git_output.log; then
-                echo "A fatal error occurred. Re-cloning the repository..."
-
-                # Remove the installation directory and clean up any partial clones
-                echo "Removing the installation directory..."
-                rm -rf "$INSTALL_DIR"
-
-                # Ensure there are no leftover Git references
-                echo "Cleaning up any existing Git references..."
-                git gc --prune=now
-
-                # Re-clone the repository
-                git clone "$REPO_URL" "$INSTALL_DIR"
-                if [ $? -ne 0 ]; then
-                    echo "Error: Failed to clone the repository."
-                    exit 1
-                fi
-            else
-                # Ensure tracking information is set up for the main branch
-                echo "Setting upstream branch to 'origin/main'..."
-                git branch --set-upstream-to=origin/main main
-
-                # Fetch latest changes and reset the local repository to match the remote
-                echo "Fetching latest changes..."
-                git fetch origin
-                git reset --hard origin/main
-                if [ $? -ne 0 ]; then
-                    echo "Error: Failed to update the repository."
-                    exit 1
-                fi
+            # Reset local changes and make sure the repository is clean
+            git reset --hard
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to reset the repository to its latest state."
+                exit 1
             fi
 
-            # Restore settings.ini after re-cloning if it was backed up
-            if [ -f "$CONFIG_FILE.bak" ]; then
-                echo "Restoring settings.ini..."
-                mv "$CONFIG_FILE.bak" "$CONFIG_FILE"
+            # Pull the latest changes from the repository
+            git pull
+            if [ $? -ne 0 ]; then
+                echo "Error: Failed to update the repository."
+                exit 1
             fi
 
             # Ensure victron_monitor.py has a Python shebang
