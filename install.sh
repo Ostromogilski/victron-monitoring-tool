@@ -92,7 +92,7 @@ if [ -d "$INSTALL_DIR" ]; then
                 fi
             else
                 # Pull the latest changes from the repository
-                git pull
+                git pull origin main
                 if [ $? -ne 0 ]; then
                     echo "Error: Failed to update the repository."
                     exit 1
