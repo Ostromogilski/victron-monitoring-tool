@@ -71,11 +71,11 @@ if [ -d "$INSTALL_DIR" ]; then
             echo "Ensuring all files from the repository are up to date..."
             cd "$INSTALL_DIR" || exit
 
-            # Attempt to reset local changes, and handle corrupted repository
+            # Attempt to reset local changes and capture errors
             git reset --hard 2>&1 | tee git_output.log
-            if grep -q "fatal: Could not parse object 'HEAD'" git_output.log; then
-                echo "Repository is corrupted. Re-cloning..."
-                rm -rf "$INSTALL_DIR/.git"
+            if grep -q "fatal" git_output.log; then
+                echo "A fatal error occurred. Re-cloning the repository..."
+                rm -rf "$INSTALL_DIR"
 
                 # Re-clone the repository
                 git clone "$REPO_URL" "$INSTALL_DIR"
@@ -83,13 +83,13 @@ if [ -d "$INSTALL_DIR" ]; then
                     echo "Error: Failed to clone the repository."
                     exit 1
                 fi
-            fi
-
-            # Pull the latest changes from the repository
-            git pull
-            if [ $? -ne 0 ]; then
-                echo "Error: Failed to update the repository."
-                exit 1
+            else
+                # Pull the latest changes from the repository
+                git pull
+                if [ $? -ne 0 ]; then
+                    echo "Error: Failed to update the repository."
+                    exit 1
+                fi
             fi
 
             # Restore settings.ini after re-cloning if it was backed up
