@@ -148,8 +148,14 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
 
             # Remove installation directory and its contents
             if [ -d "$INSTALL_DIR" ]; then
-                echo "Removing application files..."
-                rm -rf "$INSTALL_DIR"
+                echo "Removing application files from $INSTALL_DIR..."
+                sudo rm -rf "$INSTALL_DIR"
+                if [ $? -eq 0 ]; then
+                    echo "$INSTALL_DIR successfully removed."
+                else
+                    echo "Error: Failed to remove $INSTALL_DIR."
+                    exit 1
+                fi
             else
                 echo "$INSTALL_DIR does not exist, skipping."
             fi
