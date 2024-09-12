@@ -49,7 +49,7 @@ then
 fi
 
 # Check if the application already exists
-if [ -d "$INSTALL_DIR" ]; then
+if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
     echo "Victron Monitoring Tool is already installed."
     echo "Please select an option:"
     echo "1. Update (keeps settings.ini and restarts the service)"
