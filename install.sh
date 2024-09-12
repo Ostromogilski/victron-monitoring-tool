@@ -155,7 +155,7 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
             fi
 
             # Remove the binary or symlink from /usr/local/bin
-            if [ -f "$BIN_FILE" ]; then
+            if [ -f "$BIN_FILE" ] || [ -L "$BIN_FILE" ]; then
                 echo "Removing victron_monitor from /usr/local/bin..."
                 rm -f "$BIN_FILE"
                 if [ ! -f "$BIN_FILE" ]; then
