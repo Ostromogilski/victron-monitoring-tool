@@ -76,9 +76,13 @@ if [ -d "$INSTALL_DIR" ]; then
             if grep -q "fatal" git_output.log; then
                 echo "A fatal error occurred. Re-cloning the repository..."
 
-                # Remove the installation directory before re-cloning
+                # Remove the installation directory and clean up any partial clones
                 echo "Removing the installation directory..."
                 rm -rf "$INSTALL_DIR"
+
+                # Ensure there are no leftover Git references
+                echo "Cleaning up any existing Git references..."
+                git gc --prune=now
 
                 # Re-clone the repository
                 git clone "$REPO_URL" "$INSTALL_DIR"
