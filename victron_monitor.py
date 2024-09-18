@@ -11,6 +11,7 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 import readline
+from tuya_controller import TuyaController
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -58,7 +59,11 @@ DEFAULT_SETTINGS = {
     'LANGUAGE': 'en',
     'INSTALLATION_ID': '',
     'VOLTAGE_HIGH_THRESHOLD': '1.10',
-    'VOLTAGE_LOW_THRESHOLD': '0.90'
+    'VOLTAGE_LOW_THRESHOLD': '0.90',
+    'TUYA_ACCESS_ID': '',
+    'TUYA_ACCESS_KEY': '',
+    'TUYA_API_ENDPOINT': '',
+    'TUYA_DEVICE_IDS': ''
 }
 
 # Function to create a default configuration file if it doesn't exist
@@ -309,6 +314,22 @@ def setup_quiet_hours():
     save_config(config)
     print("Quiet Hours configuration saved successfully.")
 
+def configure_tuya_devices():
+    config = load_config()
+    settings = config['DEFAULT']
+
+    def get_input(prompt, current_value=''):
+        return input(f"{prompt} [{current_value}]: ") or current_value
+
+    settings['TUYA_ACCESS_ID'] = get_input("Enter your Tuya Access ID", settings.get('TUYA_ACCESS_ID', ''))
+    settings['TUYA_ACCESS_KEY'] = get_input("Enter your Tuya Access Key", settings.get('TUYA_ACCESS_KEY', ''))
+    settings['TUYA_API_ENDPOINT'] = get_input("Enter your Tuya API Endpoint (e.g., https://openapi.tuyaus.com)", settings.get('TUYA_API_ENDPOINT', ''))
+    device_ids = get_input("Enter your Tuya Device IDs (comma-separated)", settings.get('TUYA_DEVICE_IDS', ''))
+    settings['TUYA_DEVICE_IDS'] = ','.join([id.strip() for id in device_ids.split(',')])
+
+    save_config(config)
+    print("Tuya configuration saved successfully.")
+
 def get_service_running_status():
     if is_service_enabled():
         status = subprocess.run(['systemctl', 'is-active', SERVICE_NAME], capture_output=True, text=True)
@@ -329,6 +350,15 @@ def restart_service():
     else:
         print("Service is not enabled.")
 
+def is_tuya_configured(config):
+    required_keys = [
+        'TUYA_ACCESS_ID',
+        'TUYA_ACCESS_KEY',
+        'TUYA_API_ENDPOINT',
+        'TUYA_DEVICE_IDS'
+    ]
+    return all(config['DEFAULT'].get(key) for key in required_keys)
+
 # Main menu
 def main():
     if not sys.stdin.isatty():
@@ -346,6 +376,9 @@ def main():
         service_running_status = get_service_running_status()
         
         service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
+
+        tuya_configured = is_tuya_configured(config)
+        tuya_status = "(Configured)" if tuya_configured else "(Not Configured)"
         
         print(f"Status: {service_running_status}")
         print("Please choose an option:")
@@ -353,9 +386,10 @@ def main():
         print(f"2. Enable or disable service at startup {service_status}")
         print(f"3. Message language ({language_name})")
         print(f"4. Set Quiet Hours ({quiet_hours_status})")
-        print("5. Restart Service")
-        print("6. View Logs")
-        print("7. Exit")
+        print("4. Configure Tuya Devices")
+        print("6. Restart Service")
+        print("7. View Logs")
+        print("8. Exit")
         
         choice = input("Enter your choice (1-7): ")
 
@@ -372,10 +406,12 @@ def main():
         elif choice == '4':
             setup_quiet_hours()
         elif choice == '5':
-            restart_service()
-        elif choice == '6':
-            view_logs()
+            configure_tuya_devices()    
         elif choice == '7':
+            restart_service()
+        elif choice == '7':
+            view_logs()
+        elif choice == '8':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
@@ -474,7 +510,8 @@ async def monitor():
     last_voltage_phases = {1: None, 2: None, 3: None}
     power_issue_counters = {1: 0, 2: 0, 3: 0}
     power_issue_reported = {1: False, 2: False, 3: False}
-    first_run = True  # Flag to indicate the first run
+    first_run = True
+    tuya_controller = None
 
     while True:
         try:
@@ -516,15 +553,48 @@ async def monitor():
                 await asyncio.sleep(REFRESH_PERIOD)
                 continue
 
-            # Check and send grid status updates independently
-            if grid_status is not None and grid_status != last_grid_status:
-                if grid_status[0] == 2:
+            # Initialize TuyaController if credentials are available
+            tuya_enabled = all([
+                settings.get('TUYA_ACCESS_ID'),
+                settings.get('TUYA_ACCESS_KEY'),
+                settings.get('TUYA_API_ENDPOINT'),
+                settings.get('TUYA_DEVICE_IDS')
+            ])
+
+            if tuya_enabled and tuya_controller is None:
+                tuya_device_ids = [id.strip() for id in settings['TUYA_DEVICE_IDS'].split(',')]
+                tuya_controller = TuyaController(
+                    settings['TUYA_ACCESS_ID'],
+                    settings['TUYA_ACCESS_KEY'],
+                    settings['TUYA_API_ENDPOINT'],
+                    tuya_device_ids
+                )
+                logging.info("Tuya Controller initialized.")
+            elif not tuya_enabled:
+                tuya_controller = None
+                logging.info("Tuya configuration not found. Skipping Tuya device control.")
+
+            # Check and send grid status updates
+            if grid_status != last_grid_status:
+                if grid_status and grid_status[0] == 2:
                     message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
                     await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                elif grid_status[0] == 0:
+
+                    # Turn off Tuya devices
+                    if tuya_controller:
+                        tuya_controller.turn_devices_off()
+                        logging.info("Tuya devices turned off due to grid down.")
+                elif grid_status and grid_status[0] == 0:
+                    # Grid is restored
                     message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
                     await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
+
+                    # Turn on Tuya devices
+                    if tuya_controller:
+                        tuya_controller.turn_devices_on()
+                        logging.info("Tuya devices turned on due to grid restoration.")
                 last_grid_status = grid_status
+
 
             # Check and send VE.Bus error updates independently
             if ve_bus_status is not None and ve_bus_status != last_ve_bus_status:
