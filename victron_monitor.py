@@ -11,14 +11,7 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 import readline
-from tuya_controller import TuyaController
-
-# Get the actual directory of the script, resolving symlinks
-script_dir = os.path.dirname(os.path.realpath(__file__))
-
-# Add the script's directory to sys.path if not already present
-if script_dir not in sys.path:
-    sys.path.insert(0, script_dir)
+from tuya_connector import TuyaOpenAPI
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -157,6 +150,32 @@ def setup_config():
 
     save_config(config)
     print("Configuration saved successfully.")
+
+class TuyaController:
+    def __init__(self, access_id, access_key, api_endpoint, device_ids):
+        self.openapi = TuyaOpenAPI(api_endpoint, access_id, access_key)
+        self.openapi.connect()
+        self.device_ids = device_ids
+
+    def turn_devices_on(self):
+        for device_id in self.device_ids:
+            try:
+                commands = {'commands': [{'code': 'switch', 'value': True}]}
+                response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
+                if not response.get('success'):
+                    logging.error(f"Failed to turn on device {device_id}: {response.get('msg')}")
+            except Exception as e:
+                logging.error(f"Exception when turning on device {device_id}: {e}")
+
+    def turn_devices_off(self):
+        for device_id in self.device_ids:
+            try:
+                commands = {'commands': [{'code': 'switch', 'value': False}]}
+                response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
+                if not response.get('success'):
+                    logging.error(f"Failed to turn off device {device_id}: {response.get('msg')}")
+            except Exception as e:
+                logging.error(f"Exception when turning off device {device_id}: {e}")
 
 def setup_language():
     config = load_config()

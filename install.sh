@@ -92,11 +92,11 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
 
             # Ensure the target script is executable
             echo "Making victron_monitor.py executable..."
-            chmod +x "$INSTALL_DIR/victron_monitor.py"
+            sudo chmod +x "$INSTALL_DIR/victron_monitor.py"
 
             # Reinitialize /usr/local/bin/victron_monitor as a symlink to the script
             echo "Reinitializing victron_monitor in /usr/local/bin..."
-            ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+            sudo ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to create the symlink for victron_monitor."
                 exit 1
@@ -149,7 +149,7 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
             # Remove installation directory and its contents
             if [ -d "$INSTALL_DIR" ]; then
                 echo "Removing application files from $INSTALL_DIR..."
-                rm -rf "$INSTALL_DIR"
+                sudo rm -rf "$INSTALL_DIR"
                 if [ $? -eq 0 ]; then
                     echo "$INSTALL_DIR successfully removed."
                 else
@@ -236,12 +236,7 @@ else
         fi
         echo "Making victron_monitor.py executable..."
         chmod +x victron_monitor.py
-        echo "Creating symlink to victron_monitor.py in /usr/local/bin..."
-        ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
-        if [ $? -ne 0 ]; then
-            echo "Error: Failed to create the symlink for victron_monitor."
-            exit 1
-        fi
+        sudo mv victron_monitor.py /usr/local/bin/victron_monitor
     else
         echo "Error: victron_monitor.py not found!"
         exit 1
