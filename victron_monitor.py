@@ -375,7 +375,7 @@ def configure_tuya_devices():
         else:
             # Prompt for Tuya API Endpoint
             settings['TUYA_ACCESS_KEY'] = access_key
-            api_endpoint = get_input("Enter your Tuya API Endpoint (e.g., https://openapi.tuyaus.com)", settings.get('TUYA_API_ENDPOINT', '')).strip()
+            api_endpoint = get_input("Enter your Tuya API Endpoint (e.g., https://openapi.tuyaeu.com)", settings.get('TUYA_API_ENDPOINT', '')).strip()
             if not api_endpoint:
                 # Disable Tuya if API Endpoint is empty
                 settings['TUYA_ACCESS_ID'] = ''
