@@ -13,6 +13,13 @@ from logging.handlers import RotatingFileHandler
 import readline
 from tuya_controller import TuyaController
 
+# Get the actual directory of the script, resolving symlinks
+script_dir = os.path.dirname(os.path.realpath(__file__))
+
+# Add the script's directory to sys.path if not already present
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.ini')
