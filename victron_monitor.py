@@ -305,11 +305,14 @@ def disable_startup():
         print("Service is already disabled.")
 
 def view_logs():
-    if is_service_enabled():
-        print("Fetching logs for the Victron Monitoring Tool...")
-        subprocess.run(['journalctl', '-u', SERVICE_NAME, '--no-pager', '--lines=100'])
+    log_file_path = os.path.join(CONFIG_DIR, 'victron_monitor.log')
+    if os.path.exists(log_file_path):
+        print("\nDisplaying the last 100 lines of the log file:\n")
+        with open(log_file_path, 'r') as log_file:
+            lines = log_file.readlines()
+            print(''.join(lines[-100:]))  # Display the last 100 lines
     else:
-        print("Service is not enabled. No logs to display.")
+        print("Log file not found.")
 
 def setup_quiet_hours():
     config = load_config()
