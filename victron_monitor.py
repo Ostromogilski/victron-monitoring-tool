@@ -344,17 +344,63 @@ def configure_tuya_devices():
     config = load_config()
     settings = config['DEFAULT']
 
-    def get_input(prompt, current_value=''):
-        return input(f"{prompt} [{current_value}]: ") or current_value
+    print("\nConfigure Tuya Devices")
+    print("These devices will be switched OFF when the grid is down and switched ON when the grid is restored.")
+    print("Only single-switch button Tuya devices are supported, like common DIN-rail switches.")
+    print("Leave any input empty to disable Tuya device control.\n")
 
-    settings['TUYA_ACCESS_ID'] = get_input("Enter your Tuya Access ID", settings.get('TUYA_ACCESS_ID', ''))
-    settings['TUYA_ACCESS_KEY'] = get_input("Enter your Tuya Access Key", settings.get('TUYA_ACCESS_KEY', ''))
-    settings['TUYA_API_ENDPOINT'] = get_input("Enter your Tuya API Endpoint (e.g., https://openapi.tuyaus.com)", settings.get('TUYA_API_ENDPOINT', ''))
-    device_ids = get_input("Enter your Tuya Device IDs (comma-separated)", settings.get('TUYA_DEVICE_IDS', ''))
-    settings['TUYA_DEVICE_IDS'] = ','.join([id.strip() for id in device_ids.split(',')])
+    def get_input(prompt, current_value=''):
+        return input(f"{prompt} [{current_value}]: ") or ''
+
+    # Prompt for Tuya Access ID
+    access_id = get_input("Enter your Tuya Access ID", settings.get('TUYA_ACCESS_ID', '')).strip()
+    if not access_id:
+        # Disable Tuya if Access ID is empty
+        settings['TUYA_ACCESS_ID'] = ''
+        settings['TUYA_ACCESS_KEY'] = ''
+        settings['TUYA_API_ENDPOINT'] = ''
+        settings['TUYA_DEVICE_IDS'] = ''
+        print("Tuya device control disabled.")
+    else:
+        # Prompt for Tuya Access Key
+        settings['TUYA_ACCESS_ID'] = access_id
+        access_key = get_input("Enter your Tuya Access Key", settings.get('TUYA_ACCESS_KEY', '')).strip()
+        if not access_key:
+            # Disable Tuya if Access Key is empty
+            settings['TUYA_ACCESS_ID'] = ''
+            settings['TUYA_ACCESS_KEY'] = ''
+            settings['TUYA_API_ENDPOINT'] = ''
+            settings['TUYA_DEVICE_IDS'] = ''
+            print("Tuya device control disabled.")
+        else:
+            # Prompt for Tuya API Endpoint
+            settings['TUYA_ACCESS_KEY'] = access_key
+            api_endpoint = get_input("Enter your Tuya API Endpoint (e.g., https://openapi.tuyaus.com)", settings.get('TUYA_API_ENDPOINT', '')).strip()
+            if not api_endpoint:
+                # Disable Tuya if API Endpoint is empty
+                settings['TUYA_ACCESS_ID'] = ''
+                settings['TUYA_ACCESS_KEY'] = ''
+                settings['TUYA_API_ENDPOINT'] = ''
+                settings['TUYA_DEVICE_IDS'] = ''
+                print("Tuya device control disabled.")
+            else:
+                # Prompt for Tuya Device IDs
+                settings['TUYA_API_ENDPOINT'] = api_endpoint
+                device_ids = get_input("Enter your Tuya Device IDs (comma-separated)", settings.get('TUYA_DEVICE_IDS', '')).strip()
+                if not device_ids:
+                    # Disable Tuya if Device IDs are empty
+                    settings['TUYA_ACCESS_ID'] = ''
+                    settings['TUYA_ACCESS_KEY'] = ''
+                    settings['TUYA_API_ENDPOINT'] = ''
+                    settings['TUYA_DEVICE_IDS'] = ''
+                    print("Tuya device control disabled.")
+                else:
+                    # Save Tuya Device IDs
+                    settings['TUYA_DEVICE_IDS'] = ','.join([id.strip() for id in device_ids.split(',') if id.strip()])
+                    print("Tuya configuration saved successfully.")
 
     save_config(config)
-    print("Tuya configuration saved successfully.")
+    print("Configuration saved.\n")
 
 def get_service_running_status():
     if is_service_enabled():
