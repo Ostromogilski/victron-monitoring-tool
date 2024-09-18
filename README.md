@@ -96,6 +96,14 @@ You can monitor the following parameters:
 
 During quiet hours (if configured), notifications are sent silently without sound or alerts in Telegram. This is useful to avoid disturbances during specified periods.
 
+### Tuya Device Control
+
+- The tool can control specified Tuya devices based on the grid status.
+- When the grid is down, the configured Tuya devices will be switched OFF.
+- When the grid is restored, the configured Tuya devices will be switched ON.
+- Only single-switch button Tuya devices are supported, such as common DIN-rail switches.
+- Tuya device control can be enabled or disabled via the configuration menu.
+
 ### Adjustable Voltage Thresholds
 
 You can adjust the voltage thresholds via the configuration menu, allowing flexibility to handle different inverter or grid conditions.
