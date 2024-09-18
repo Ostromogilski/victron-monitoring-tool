@@ -412,7 +412,7 @@ def main():
         print(f"2. Enable or disable service at startup {service_status}")
         print(f"3. Message language ({language_name})")
         print(f"4. Set Quiet Hours ({quiet_hours_status})")
-        print("4. Configure Tuya Devices")
+        print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
         print("8. Exit")
