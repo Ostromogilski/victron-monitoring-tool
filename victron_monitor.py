@@ -470,7 +470,7 @@ def main():
             setup_quiet_hours()
         elif choice == '5':
             configure_tuya_devices()    
-        elif choice == '7':
+        elif choice == '6':
             restart_service()
         elif choice == '7':
             view_logs()
