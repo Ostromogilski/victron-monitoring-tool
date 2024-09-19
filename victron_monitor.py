@@ -505,7 +505,7 @@ def main():
         print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
-        print("8. Dev Menu (Simulate States)")
+        print("8. Dev Menu")
         print("9. Exit")
         
         choice = input("Enter your choice (1-9): ")
@@ -528,7 +528,7 @@ def main():
             restart_service()
         elif choice == '7':
             view_logs()
-        elif choice == '9':
+        elif choice == '8':
             dev_menu()
         elif choice == '9':
             sys.exit(0)
@@ -609,7 +609,7 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
     # Add test message prefix if in Dev mode
     if is_dev_mode:
         message = "👨🏻‍💻 TEST MESSAGE\n" + message
-        
+
     local_tz = pytz.timezone(TIMEZONE)
     current_hour = datetime.now(local_tz).hour
     config = load_config()
