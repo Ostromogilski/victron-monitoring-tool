@@ -424,56 +424,54 @@ def is_tuya_configured(config):
 
 def dev_menu():
     global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases, tuya_controller, is_dev_mode
-    
+
     # Enable Dev mode
-    is_dev_mode = True
+    is_dev_mode = True  # Stop fetching data from the API in monitor loop
 
-    config = load_config()
-    messages = load_messages(config)
+    while True:  # Stay in the dev menu until the user chooses to exit
+        print("Dev Menu - Choose a state to simulate:")
+        print("1. Simulate Grid Down")
+        print("2. Simulate Grid Restored")
+        print("3. Simulate Low Voltage on Phase 1")
+        print("4. Simulate High Voltage on Phase 1")
+        print("5. Simulate VE.Bus Error")
+        print("6. Simulate VE.Bus Recovery")
+        print("7. Simulate Low Battery")
+        print("8. Simulate Critical Battery")
+        print("9. Exit Dev Menu")
 
-    print("Dev Menu - Choose a state to simulate:")
-    print("1. Simulate Grid Down")
-    print("2. Simulate Grid Restored")
-    print("3. Simulate Low Voltage on Phase 1")
-    print("4. Simulate High Voltage on Phase 1")
-    print("5. Simulate VE.Bus Error")
-    print("6. Simulate VE.Bus Recovery")
-    print("7. Simulate Low Battery")
-    print("8. Simulate Critical Battery")
-    print("9. Exit Dev Menu")
+        choice = input("Enter your choice (1-9): ").strip()
 
-    choice = input("Enter your choice (1-9): ").strip()
-
-    if choice == '1':
-        print("Simulating: Grid Down")
-        last_grid_status = (2, "Alarm active")  # Simulate grid down
-    elif choice == '2':
-        print("Simulating: Grid Restored")
-        last_grid_status = (0, "Alarm cleared")  # Simulate grid restored
-    elif choice == '3':
-        print("Simulating: Low Voltage on Phase 1")
-        last_voltage_phases[1] = (200.0, "Low voltage detected")  # Simulate low voltage
-    elif choice == '4':
-        print("Simulating: High Voltage on Phase 1")
-        last_voltage_phases[1] = (255.0, "High voltage detected")  # Simulate high voltage
-    elif choice == '5':
-        print("Simulating: VE.Bus Error")
-        last_ve_bus_status = (1, "VE.Bus Error detected")  # Simulate VE.Bus error
-    elif choice == '6':
-        print("Simulating: VE.Bus Recovery")
-        last_ve_bus_status = (0, "No error")  # Simulate VE.Bus recovery
-    elif choice == '7':
-        print("Simulating: Low Battery")
-        last_low_battery_status = (1, "Low battery detected")  # Simulate low battery
-    elif choice == '8':
-        print("Simulating: Critical Battery")
-        last_low_battery_status = (2, "Critical battery detected")  # Simulate critical battery
-    elif choice == '9':
-        print("Exiting Dev Menu.")
-        is_dev_mode = False  # Disable Dev mode
-        return
-    else:
-        print("Invalid choice. Please try again.")
+        if choice == '1':
+            print("Simulating: Grid Down")
+            last_grid_status = (2, "Alarm active")  # Simulate grid down
+        elif choice == '2':
+            print("Simulating: Grid Restored")
+            last_grid_status = (0, "Alarm cleared")  # Simulate grid restored
+        elif choice == '3':
+            print("Simulating: Low Voltage on Phase 1")
+            last_voltage_phases[1] = (1.0, "Low voltage detected")  # Simulate low voltage
+        elif choice == '4':
+            print("Simulating: High Voltage on Phase 1")
+            last_voltage_phases[1] = (999.0, "High voltage detected")  # Simulate high voltage
+        elif choice == '5':
+            print("Simulating: VE.Bus Error")
+            last_ve_bus_status = (1, "VE.Bus Error detected")  # Simulate VE.Bus error
+        elif choice == '6':
+            print("Simulating: VE.Bus Recovery")
+            last_ve_bus_status = (0, "No error")  # Simulate VE.Bus recovery
+        elif choice == '7':
+            print("Simulating: Low Battery")
+            last_low_battery_status = (1, "Low battery detected")  # Simulate low battery
+        elif choice == '8':
+            print("Simulating: Critical Battery")
+            last_low_battery_status = (2, "Critical battery detected")  # Simulate critical battery
+        elif choice == '9':
+            print("Exiting Dev Menu.")
+            is_dev_mode = False  # Re-enable normal API fetching in monitor loop
+            return
+        else:
+            print("Invalid choice. Please try again.")
 
 # Main menu
 def main():
@@ -665,6 +663,14 @@ async def monitor():
                 return
 
             local_tz = pytz.timezone(TIMEZONE)
+
+            # Check if dev mode is active
+            if is_dev_mode:
+                print("Dev mode active. Waiting for states from dev_menu().")
+
+                # Skip fetching from API, just wait for the next state set by dev_menu()
+                await asyncio.sleep(REFRESH_PERIOD)
+                continue
             
             # Fetch the current status from the Victron API
             grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
