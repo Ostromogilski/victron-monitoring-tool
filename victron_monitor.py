@@ -422,6 +422,59 @@ def is_tuya_configured(config):
     ]
     return all(config['DEFAULT'].get(key) for key in required_keys)
 
+def dev_menu():
+    global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases, tuya_controller, is_dev_mode
+    
+    # Enable Dev mode
+    is_dev_mode = True
+
+    config = load_config()
+    messages = load_messages(config)
+
+    print("Dev Menu - Choose a state to simulate:")
+    print("1. Simulate Grid Down")
+    print("2. Simulate Grid Restored")
+    print("3. Simulate Low Voltage on Phase 1")
+    print("4. Simulate High Voltage on Phase 1")
+    print("5. Simulate VE.Bus Error")
+    print("6. Simulate VE.Bus Recovery")
+    print("7. Simulate Low Battery")
+    print("8. Simulate Critical Battery")
+    print("9. Exit Dev Menu")
+
+    choice = input("Enter your choice (1-9): ").strip()
+
+    if choice == '1':
+        print("Simulating: Grid Down")
+        last_grid_status = (2, "Alarm active")  # Simulate grid down
+    elif choice == '2':
+        print("Simulating: Grid Restored")
+        last_grid_status = (0, "Alarm cleared")  # Simulate grid restored
+    elif choice == '3':
+        print("Simulating: Low Voltage on Phase 1")
+        last_voltage_phases[1] = (200.0, "Low voltage detected")  # Simulate low voltage
+    elif choice == '4':
+        print("Simulating: High Voltage on Phase 1")
+        last_voltage_phases[1] = (255.0, "High voltage detected")  # Simulate high voltage
+    elif choice == '5':
+        print("Simulating: VE.Bus Error")
+        last_ve_bus_status = (1, "VE.Bus Error detected")  # Simulate VE.Bus error
+    elif choice == '6':
+        print("Simulating: VE.Bus Recovery")
+        last_ve_bus_status = (0, "No error")  # Simulate VE.Bus recovery
+    elif choice == '7':
+        print("Simulating: Low Battery")
+        last_low_battery_status = (1, "Low battery detected")  # Simulate low battery
+    elif choice == '8':
+        print("Simulating: Critical Battery")
+        last_low_battery_status = (2, "Critical battery detected")  # Simulate critical battery
+    elif choice == '9':
+        print("Exiting Dev Menu.")
+        is_dev_mode = False  # Disable Dev mode
+        return
+    else:
+        print("Invalid choice. Please try again.")
+
 # Main menu
 def main():
     if not sys.stdin.isatty():
@@ -452,9 +505,10 @@ def main():
         print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
-        print("8. Exit")
+        print("8. Dev Menu (Simulate States)")
+        print("9. Exit")
         
-        choice = input("Enter your choice (1-8): ")
+        choice = input("Enter your choice (1-9): ")
 
         if choice == '1':
             setup_config()
@@ -474,7 +528,9 @@ def main():
             restart_service()
         elif choice == '7':
             view_logs()
-        elif choice == '8':
+        elif choice == '9':
+            dev_menu()
+        elif choice == '9':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
@@ -548,6 +604,12 @@ def get_status(VICTRON_API_URL, API_KEY):
 
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
+    global is_dev_mode
+
+    # Add test message prefix if in Dev mode
+    if is_dev_mode:
+        message = "👨🏻‍💻 TEST MESSAGE\n" + message
+        
     local_tz = pytz.timezone(TIMEZONE)
     current_hour = datetime.now(local_tz).hour
     config = load_config()
@@ -566,6 +628,8 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
 
 # Monitor loop
 async def monitor():
+    global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases, tuya_controller
+    
     last_grid_status = None
     last_ve_bus_status = None
     last_low_battery_status = None
@@ -645,8 +709,12 @@ async def monitor():
 
                     # Turn off Tuya devices
                     if tuya_controller:
-                        tuya_controller.turn_devices_off()
-                        logging.info("Tuya devices turned off due to grid down.")
+                        try:
+                            tuya_controller.turn_devices_off()
+                            logging.info("Tuya devices turned off due to grid down.")
+                        except Exception as e:
+                            logging.error(f"Error turning off Tuya devices: {e}")
+
                 elif grid_status and grid_status[0] == 0:
                     # Grid is restored
                     message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
@@ -654,10 +722,12 @@ async def monitor():
 
                     # Turn on Tuya devices
                     if tuya_controller:
-                        tuya_controller.turn_devices_on()
-                        logging.info("Tuya devices turned on due to grid restoration.")
+                        try:
+                            tuya_controller.turn_devices_on()
+                            logging.info("Tuya devices turned on due to grid restoration.")
+                        except Exception as e:
+                            logging.error(f"Error turning on Tuya devices: {e}")
                 last_grid_status = grid_status
-
 
             # Check and send VE.Bus error updates independently
             if ve_bus_status is not None and ve_bus_status != last_ve_bus_status:
