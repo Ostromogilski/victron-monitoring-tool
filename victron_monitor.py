@@ -66,6 +66,8 @@ DEFAULT_SETTINGS = {
     'TUYA_DEVICE_IDS': ''
 }
 
+is_dev_mode = False
+
 # Function to create a default configuration file if it doesn't exist
 def create_default_config():
     try:
