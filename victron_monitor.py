@@ -66,8 +66,6 @@ DEFAULT_SETTINGS = {
     'TUYA_DEVICE_IDS': ''
 }
 
-is_dev_mode = False
-
 # Function to create a default configuration file if it doesn't exist
 def create_default_config():
     try:
@@ -424,57 +422,6 @@ def is_tuya_configured(config):
     ]
     return all(config['DEFAULT'].get(key) for key in required_keys)
 
-def dev_menu():
-    global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases, tuya_controller, is_dev_mode
-
-    # Enable Dev mode
-    is_dev_mode = True  # Stop fetching data from the API in monitor loop
-
-    while True:  # Stay in the dev menu until the user chooses to exit
-        print("Dev Menu - Choose a state to simulate:")
-        print("1. Simulate Grid Down")
-        print("2. Simulate Grid Restored")
-        print("3. Simulate Low Voltage on Phase 1")
-        print("4. Simulate High Voltage on Phase 1")
-        print("5. Simulate VE.Bus Error")
-        print("6. Simulate VE.Bus Recovery")
-        print("7. Simulate Low Battery")
-        print("8. Simulate Critical Battery")
-        print("9. Exit Dev Menu")
-
-        choice = input("Enter your choice (1-9): ").strip()
-
-        if choice == '1':
-            print("Simulating: Grid Down")
-            last_grid_status = (2, "Alarm active")  # Simulate grid down
-        elif choice == '2':
-            print("Simulating: Grid Restored")
-            last_grid_status = (0, "Alarm cleared")  # Simulate grid restored
-        elif choice == '3':
-            print("Simulating: Low Voltage on Phase 1")
-            last_voltage_phases[1] = (1.0, "Low voltage detected")  # Simulate low voltage
-        elif choice == '4':
-            print("Simulating: High Voltage on Phase 1")
-            last_voltage_phases[1] = (999.0, "High voltage detected")  # Simulate high voltage
-        elif choice == '5':
-            print("Simulating: VE.Bus Error")
-            last_ve_bus_status = (1, "VE.Bus Error detected")  # Simulate VE.Bus error
-        elif choice == '6':
-            print("Simulating: VE.Bus Recovery")
-            last_ve_bus_status = (0, "No error")  # Simulate VE.Bus recovery
-        elif choice == '7':
-            print("Simulating: Low Battery")
-            last_low_battery_status = (1, "Low battery detected")  # Simulate low battery
-        elif choice == '8':
-            print("Simulating: Critical Battery")
-            last_low_battery_status = (2, "Critical battery detected")  # Simulate critical battery
-        elif choice == '9':
-            print("Exiting Dev Menu.")
-            is_dev_mode = False  # Re-enable normal API fetching in monitor loop
-            return
-        else:
-            print("Invalid choice. Please try again.")
-
 # Main menu
 def main():
     if not sys.stdin.isatty():
@@ -505,10 +452,9 @@ def main():
         print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
-        print("8. Dev Menu")
-        print("9. Exit")
+        print("8. Exit")
         
-        choice = input("Enter your choice (1-9): ")
+        choice = input("Enter your choice (1-8): ")
 
         if choice == '1':
             setup_config()
@@ -529,8 +475,6 @@ def main():
         elif choice == '7':
             view_logs()
         elif choice == '8':
-            dev_menu()
-        elif choice == '9':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
@@ -604,12 +548,6 @@ def get_status(VICTRON_API_URL, API_KEY):
 
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
-    global is_dev_mode
-
-    # Add test message prefix if in Dev mode
-    if is_dev_mode:
-        message = "👨🏻‍💻 TEST MESSAGE\n" + message
-
     local_tz = pytz.timezone(TIMEZONE)
     current_hour = datetime.now(local_tz).hour
     config = load_config()
@@ -626,10 +564,8 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
 
     await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
 
+# Monitor loop
 async def monitor():
-    global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases, tuya_controller, is_dev_mode
-    
-    # Initialize variables
     last_grid_status = None
     last_ve_bus_status = None
     last_low_battery_status = None
@@ -648,77 +584,23 @@ async def monitor():
 
             TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
             CHAT_ID = settings['CHAT_ID']
+            VICTRON_API_URL = settings['VICTRON_API_URL']
+            API_KEY = settings['API_KEY']
             REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
             TIMEZONE = settings['TIMEZONE']
-
-            if not TELEGRAM_TOKEN or not CHAT_ID:
+            
+            # Check if essential configuration values are set
+            if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
                 logging.error("Essential configuration values are missing. Please set them in the configuration.")
-                return  # Exit if essential configurations are missing
+                return  # Exit the monitoring function without running it
 
             try:
                 bot = Bot(token=TELEGRAM_TOKEN)
-            except InvalidToken:
+            except telegram.error.InvalidToken:
                 logging.error("Invalid Telegram token provided. Please check your configuration.")
                 return
 
             local_tz = pytz.timezone(TIMEZONE)
-            timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
-
-            # Check if dev mode is active
-            if is_dev_mode:
-                print("Dev mode active. Reading simulated states from dev_menu().")
-
-                # Simulate grid status messages based on the current simulated states
-                if last_grid_status is not None and last_grid_status[0] == 2:
-                    message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                    if tuya_controller:
-                        try:
-                            tuya_controller.turn_devices_off()
-                            logging.info("Tuya devices turned off due to simulated grid down.")
-                        except Exception as e:
-                            logging.error(f"Error turning off Tuya devices: {e}")
-
-                elif last_grid_status is not None and last_grid_status[0] == 0:
-                    message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                    if tuya_controller:
-                        try:
-                            tuya_controller.turn_devices_on()
-                            logging.info("Tuya devices turned on due to simulated grid restoration.")
-                        except Exception as e:
-                            logging.error(f"Error turning on Tuya devices: {e}")
-
-                # Simulate VE.Bus error messages
-                if last_ve_bus_status is not None:
-                    if last_ve_bus_status[1] == "No error":
-                        message = messages['VE_BUS_RECOVERY_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                    else:
-                        message = messages['VE_BUS_ERROR_MSG'].replace('{error}', last_ve_bus_status[1]).replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-
-                # Simulate low battery messages
-                if last_low_battery_status is not None:
-                    if last_low_battery_status[0] == 1:
-                        message = messages['LOW_BATTERY_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                    elif last_low_battery_status[0] == 2:
-                        message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-
-                # Simulate voltage phase messages
-                for phase in range(1, 4):
-                    voltage = last_voltage_phases[phase]
-                    if voltage is not None and voltage[0] > 0:
-                        if voltage[0] < 200.0:  # Simulate a low voltage threshold
-                            message = messages['VOLTAGE_LOW_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
-                            await send_telegram_message(bot, CHAT_ID, message, TIMEZONE)
-                        elif voltage[0] > 250.0:  # Simulate a high voltage threshold
-                            message = messages['VOLTAGE_HIGH_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
-
-                await asyncio.sleep(REFRESH_PERIOD)
-                continue  # Skip further processing while in dev mode
             
             # Fetch the current status from the Victron API
             grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
