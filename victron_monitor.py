@@ -47,7 +47,7 @@ log_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
 log_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 log_handler.setFormatter(log_formatter)
 
-logging.basicConfig(level=logging.INFO, handlers=[log_handler], format='%(asctime)s %(levelname)s: %(message)s')
+logging.basicConfig(level=logging.DEBUG, handlers=[log_handler], format='%(asctime)s %(levelname)s: %(message)s')
 
 # Default settings
 DEFAULT_SETTINGS = {
@@ -869,6 +869,8 @@ async def monitor():
                         max_power = float(settings['MAX_POWER'])
                         power_limit = max_power * 0.98  # 2% less than MAX_POWER
                         power_reset_threshold = max_power * 0.80  # 20% less than MAX_POWER
+#LOGGING
+                        logging.debug(f"Phase {phase} - Power: {power:.2f}W, Power Limit: {power_limit:.2f}W, Counter: {power_issue_counters[phase]}, Reported: {power_issue_reported[phase]}")
 
                         if power > power_limit:
                             power_issue_counters[phase] += 1
