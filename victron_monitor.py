@@ -431,6 +431,7 @@ def is_tuya_configured(config):
 async def developer_menu():
     global dev_mode
     global reset_last_values
+    global simulated_values  # Ensure this is declared global
     dev_mode = True
     reset_last_values = True
     print("Victron API polling is paused. Entering Developer Menu.")
@@ -442,13 +443,11 @@ async def developer_menu():
         print("4. Simulate VE.Bus Recovered")
         print("5. Simulate Low Battery")
         print("6. Simulate Critical Battery")
-        print("7. Simulate Voltage Low on Phase")
-        print("8. Simulate Voltage High on Phase")
-        print("9. Simulate Voltage Normal on Phase")
-        print("10. Simulate Critical Load")
-        print("11. Simulate Passthru Critical Load")
-        print("12. Exit Developer Menu")
-        choice = (await aioconsole.ainput("Enter your choice (1-12): ")).strip()
+        print("7. Simulate Voltage on Phase")
+        print("8. Simulate Critical Load")
+        print("9. Simulate Passthru Critical Load")
+        print("10. Exit Developer Menu")
+        choice = (await aioconsole.ainput("Enter your choice (1-10): ")).strip()
 
         if choice == '1':
             simulated_values['grid_status'] = (2, 'Grid Down')
@@ -470,51 +469,59 @@ async def developer_menu():
             print("Simulating Critical Battery.")
         elif choice == '7':
             phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            if phase in ['1', '2', '3']:
-                simulated_values['voltage_phases'] = simulated_values.get('voltage_phases', {})
-                simulated_values['voltage_phases'][int(phase)] = (0.01 * float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']), '')
-                print(f"Simulating Voltage Low on Phase {phase}.")
-            else:
-                print("Invalid phase number.")
+            voltage_input = (await aioconsole.ainput("Enter desired voltage for the phase: ")).strip()
+            try:
+                phase = int(phase)
+                voltage = float(voltage_input)
+                if phase in [1, 2, 3]:
+                    simulated_values['voltage_phases'] = simulated_values.get('voltage_phases', {})
+                    simulated_values['voltage_phases'][phase] = (voltage, '')
+                    print(f"Simulating Voltage {voltage}V on Phase {phase}.")
+                else:
+                    print("Invalid phase number.")
+            except ValueError:
+                print("Invalid input. Please enter numeric values for phase and voltage.")
         elif choice == '8':
             phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            if phase in ['1', '2', '3']:
-                simulated_values['voltage_phases'] = simulated_values.get('voltage_phases', {})
-                simulated_values['voltage_phases'][int(phase)] = (10.00 * float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']), '')
-                print(f"Simulating Voltage High on Phase {phase}.")
-            else:
-                print("Invalid phase number.")
+            voltage_input = (await aioconsole.ainput("Enter output voltage for the phase: ")).strip()
+            current_input = (await aioconsole.ainput("Enter output current for the phase: ")).strip()
+            try:
+                phase = int(phase)
+                voltage = float(voltage_input)
+                current = float(current_input)
+                if phase in [1, 2, 3]:
+                    simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
+                    simulated_values['output_currents'] = simulated_values.get('output_currents', {})
+                    simulated_values['output_voltages'][phase] = (voltage, '')
+                    simulated_values['output_currents'][phase] = (current, '')
+                    print(f"Simulating Critical Load on Phase {phase} with Voltage {voltage}V and Current {current}A.")
+                else:
+                    print("Invalid phase number.")
+            except ValueError:
+                print("Invalid input. Please enter numeric values for phase, voltage, and current.")
         elif choice == '9':
             phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            if phase in ['1', '2', '3']:
-                simulated_values['voltage_phases'] = simulated_values.get('voltage_phases', {})
-                simulated_values['voltage_phases'][int(phase)] = (float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']), '')
-                print(f"Simulating Voltage Normal on Phase {phase}.")
-            else:
-                print("Invalid phase number.")
+            voltage_input = (await aioconsole.ainput("Enter output voltage for the phase: ")).strip()
+            current_input = (await aioconsole.ainput("Enter output current for the phase: ")).strip()
+            try:
+                phase = int(phase)
+                voltage = float(voltage_input)
+                current = float(current_input)
+                if phase in [1, 2, 3]:
+                    simulated_values['ve_bus_state'] = PASSTHRU_STATE
+                    simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
+                    simulated_values['output_currents'] = simulated_values.get('output_currents', {})
+                    simulated_values['output_voltages'][phase] = (voltage, '')
+                    simulated_values['output_currents'][phase] = (current, '')
+                    print(f"Simulating Passthru Critical Load on Phase {phase} with Voltage {voltage}V and Current {current}A.")
+                else:
+                    print("Invalid phase number.")
+            except ValueError:
+                print("Invalid input. Please enter numeric values for phase, voltage, and current.")
         elif choice == '10':
-            phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            if phase in ['1', '2', '3']:
-                simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
-                simulated_values['output_currents'] = simulated_values.get('output_currents', {})
-                simulated_values['output_voltages'][int(phase)] = (float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']), '')
-                simulated_values['output_currents'][int(phase)] = (float(DEFAULT_SETTINGS['MAX_POWER']) / float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']) * 1.1, '')
-                print(f"Simulating Critical Load on Phase {phase}.")
-            else:
-                print("Invalid phase number.")
-        elif choice == '11':
-            phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            if phase in ['1', '2', '3']:
-                simulated_values['ve_bus_state'] = PASSTHRU_STATE
-                simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
-                simulated_values['output_currents'] = simulated_values.get('output_currents', {})
-                simulated_values['output_voltages'][int(phase)] = (float(DEFAULT_SETTINGS['NOMINAL_VOLTAGE']), '')
-                simulated_values['output_currents'][int(phase)] = (float(DEFAULT_SETTINGS['PASSTHRU_CURRENT']) * 1.1, '')
-                print(f"Simulating Passthru Critical Load on Phase {phase}.")
-            else:
-                print("Invalid phase number.")
-        elif choice == '12':
             dev_mode = False
+            reset_last_values = True  # Reset last known states
+            simulated_values = {}     # Clear simulated values
             print("Exiting Developer Menu. Victron API polling is resumed.")
             break
         else:
@@ -628,6 +635,9 @@ async def monitor():
                 last_ve_bus_status = None
                 last_low_battery_status = None
                 last_voltage_phases = {1: None, 2: None, 3: None}
+                power_issue_counters = {1: 0, 2: 0, 3: 0}
+                power_issue_reported = {1: False, 2: False, 3: False}
+                voltage_issue_reported = {1: False, 2: False, 3: False}
                 reset_last_values = False
 
             config = load_config()
