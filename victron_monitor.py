@@ -583,6 +583,27 @@ def get_status(VICTRON_API_URL, API_KEY):
         print("Error parsing JSON:", e)
         return None, None, None, None, None, None, None
 
+# Async function to send a message to the Telegram group
+async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
+    local_tz = pytz.timezone(TIMEZONE)
+    current_hour = datetime.now(local_tz).hour
+    config = load_config()
+    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
+    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
+
+    # Determine if the message should be sent silently
+    disable_notification = False
+    if quiet_hours_start is not None and quiet_hours_end is not None:
+        if quiet_hours_start < quiet_hours_end:
+            disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
+        else:  # Handles the case where quiet hours span midnight
+            disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
+
+    if is_test_message:
+        message = '👨🏻‍💻 TEST MESSAGE\n' + message
+
+    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
+
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -880,31 +901,6 @@ async def main():
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
-
-if __name__ == '__main__':
-    asyncio.run(main())
-
-# Async function to send a message to the Telegram group
-async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
-    local_tz = pytz.timezone(TIMEZONE)
-    current_hour = datetime.now(local_tz).hour
-    config = load_config()
-    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
-    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
-
-    # Determine if the message should be sent silently
-    disable_notification = False
-    if quiet_hours_start is not None and quiet_hours_end is not None:
-        if quiet_hours_start < quiet_hours_end:
-            disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
-        else:  # Handles the case where quiet hours span midnight
-            disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
-
-    if is_test_message:
-        message = '👨🏻‍💻 TEST MESSAGE\n' + message
-
-    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
-
 
 if __name__ == '__main__':
     asyncio.run(main())
