@@ -12,6 +12,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import readline
 from tuya_connector import TuyaOpenAPI
+import threading
 
 dev_mode = False
 dev_mode_states = {}
@@ -416,10 +417,13 @@ def restart_service():
     else:
         print("Service is not enabled.")
 
+dev_mode_lock = threading.Lock()
+
 def developer_menu():
     global dev_mode, dev_mode_states
-    dev_mode = True
-    dev_mode_states = {}
+    with dev_mode_lock:
+        dev_mode = True
+        dev_mode_states = {}
     while True:
         print("\nDeveloper Menu:")
         print("1. Simulate Grid Down")
@@ -434,29 +438,35 @@ def developer_menu():
         choice = input("Enter your choice (1-8): ").strip()
         
         if choice == '1':
-            dev_mode_states['grid_status'] = (2, 'Grid Failure')
+            with dev_mode_lock:
+                dev_mode_states['grid_status'] = (2, 'Grid Failure')
             print("Simulating Grid Down...")
         elif choice == '2':
-            dev_mode_states['grid_status'] = (0, 'Grid OK')
+            with dev_mode_lock:
+                dev_mode_states['grid_status'] = (0, 'Grid OK')
             print("Simulating Grid Restored...")
         elif choice == '3':
             error_message = input("Enter VE.Bus Error message: ").strip()
-            dev_mode_states['ve_bus_status'] = (1, error_message or 'VE.Bus Error')
+            with dev_mode_lock:
+                dev_mode_states['ve_bus_status'] = (1, error_message or 'VE.Bus Error')
             print("Simulating VE.Bus Error...")
         elif choice == '4':
-            dev_mode_states['low_battery_status'] = (2, 'Critical battery level')
+            with dev_mode_lock:
+                dev_mode_states['low_battery_status'] = (2, 'Critical battery level')
             print("Simulating Low Battery...")
         elif choice == '5':
             phase = input("Enter phase number (1-3): ").strip()
             if phase in ['1', '2', '3']:
-                dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (1.0, f"1.0V")
+                with dev_mode_lock:
+                    dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (1.0, f"1.0V")
                 print(f"Simulating Voltage Low on Phase {phase}...")
             else:
                 print("Invalid phase number.")
         elif choice == '6':
             phase = input("Enter phase number (1-3): ").strip()
             if phase in ['1', '2', '3']:
-                dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (999.0, f"999.0V")
+                with dev_mode_lock:
+                    dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (999.0, f"999.0V")
                 print(f"Simulating Voltage High on Phase {phase}...")
             else:
                 print("Invalid phase number.")
@@ -464,16 +474,18 @@ def developer_menu():
             phase = input("Enter phase number (1-3): ").strip()
             if phase in ['1', '2', '3']:
                 # Simulate high output current
-                dev_mode_states.setdefault('output_voltages', {})[int(phase)] = (230.0, '230.0V')
-                dev_mode_states.setdefault('output_currents', {})[int(phase)] = (50.0, '50.0A')
-                dev_mode_states['grid_status'] = (2, 'Grid Failure')  # Assume grid is down
+                with dev_mode_lock:
+                    dev_mode_states.setdefault('output_voltages', {})[int(phase)] = (230.0, '230.0V')
+                    dev_mode_states.setdefault('output_currents', {})[int(phase)] = (50.0, '50.0A')
+                    dev_mode_states['grid_status'] = (2, 'Grid Failure')  # Assume grid is down
                 print(f"Simulating Critical Load on Phase {phase}...")
             else:
                 print("Invalid phase number.")
         elif choice == '8':
             print("Exiting Developer Menu...")
-            dev_mode = False
-            dev_mode_states = {}
+            with dev_mode_lock:
+                dev_mode = False
+                dev_mode_states = {}
             break
         else:
             print("Invalid choice. Please try again.")
@@ -667,22 +679,26 @@ async def monitor():
 
             try:
                 bot = Bot(token=TELEGRAM_TOKEN)
-            except telegram.error.InvalidToken:
+            except InvalidToken:
                 logging.error("Invalid Telegram token provided. Please check your configuration.")
                 return
 
             local_tz = pytz.timezone(TIMEZONE)
 
+            with dev_mode_lock:
+                current_dev_mode = dev_mode
+                current_dev_mode_states = dev_mode_states.copy()
+
             # If dev_mode is True, use simulated values
-            if dev_mode:
+            if current_dev_mode:
                 # Use values from dev_mode_states
-                grid_status = dev_mode_states.get('grid_status', last_grid_status)
-                ve_bus_status = dev_mode_states.get('ve_bus_status', last_ve_bus_status)
-                low_battery_status = dev_mode_states.get('low_battery_status', last_low_battery_status)
-                voltage_phases = dev_mode_states.get('voltage_phases', last_voltage_phases)
-                output_voltages = dev_mode_states.get('output_voltages', {})
-                output_currents = dev_mode_states.get('output_currents', {})
-                ve_bus_state = dev_mode_states.get('ve_bus_state', None)
+                grid_status = current_dev_mode_states.get('grid_status', last_grid_status)
+                ve_bus_status = current_dev_mode_states.get('ve_bus_status', last_ve_bus_status)
+                low_battery_status = current_dev_mode_states.get('low_battery_status', last_low_battery_status)
+                voltage_phases = current_dev_mode_states.get('voltage_phases', last_voltage_phases)
+                output_voltages = current_dev_mode_states.get('output_voltages', {})
+                output_currents = current_dev_mode_states.get('output_currents', {})
+                ve_bus_state = current_dev_mode_states.get('ve_bus_state', None)
             else:
                 # Fetch the current status from the Victron API
                 grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
@@ -775,8 +791,8 @@ async def monitor():
 
             # Check and send voltage phase updates independently
             for phase in range(1, 4):
-                voltage = voltage_phases[phase]
-                last_voltage = last_voltage_phases[phase]
+                voltage = voltage_phases.get(phase)
+                last_voltage = last_voltage_phases.get(phase)
 
                 # Load nominal voltage and calculate thresholds
                 nominal_voltage = float(settings['NOMINAL_VOLTAGE'])
@@ -809,7 +825,7 @@ async def monitor():
             # Check power consumption on each phase if the grid is absent
             if grid_status and grid_status[0] == 2:  # Assuming grid_status[0] == 2 means grid is down
                 for phase in range(1, 4):
-                    if output_voltages[phase] is not None and output_currents[phase] is not None:
+                    if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
                         # Calculate power consumption by multiplying voltage and current
                         power = output_voltages[phase][0] * output_currents[phase][0]
                         max_power = float(settings['MAX_POWER'])
@@ -832,7 +848,7 @@ async def monitor():
             # Check power consumption on each phase if the VE.Bus state is "Passthru"
             if ve_bus_state != PASSTHRU_STATE:
                 for phase in range(1, 4):
-                    if output_voltages[phase] is not None and output_currents[phase] is not None:
+                    if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
                         current = output_currents[phase][0]
 
                         passthru_current_limit = float(settings['PASSTHRU_CURRENT']) * 0.98  # 2% less than PASSTHRU_CURRENT
@@ -851,13 +867,18 @@ async def monitor():
                     else:
                         power_issue_counters[phase] = 0
 
-
             await asyncio.sleep(REFRESH_PERIOD)
+
         except Exception as e:
             logging.error(f"Error: {e}")
             await asyncio.sleep(REFRESH_PERIOD)
 
 # Run the monitoring loop
 if __name__ == '__main__':
+    # Start monitor() in a separate thread
+    def start_monitor():
+        asyncio.run(monitor())
+
+    monitor_thread = threading.Thread(target=start_monitor, daemon=True)
+    monitor_thread.start()
     main()
-    asyncio.run(monitor())
