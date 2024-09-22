@@ -12,7 +12,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 import readline
 from tuya_connector import TuyaOpenAPI
-import threading
 
 #Global variables
 dev_mode = False
@@ -905,10 +904,6 @@ async def monitor():
         except Exception as e:
             logging.error(f"Error: {e}")
             await asyncio.sleep(REFRESH_PERIOD)
-
-# Run the monitoring loop
-def start_monitor():
-    asyncio.run(monitor())
 
 if __name__ == '__main__':
     monitor_thread = threading.Thread(target=start_monitor)
