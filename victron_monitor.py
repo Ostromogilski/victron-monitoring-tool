@@ -529,7 +529,7 @@ async def developer_menu():
                     simulated_values['output_currents'][phase] = (current, '')
                     print(f"Simulating Critical Load on Phase {phase} with Power {power}W.")
 
-                    await asyncio.sleep((REFRESH_PERIOD + 1) * 2)
+                    await asyncio.sleep((REFRESH_PERIOD + 1) * 3)
 
                     simulated_values['output_voltages'].pop(phase, None)
                     simulated_values['output_currents'].pop(phase, None)
@@ -558,7 +558,7 @@ async def developer_menu():
                     simulated_values['output_currents'][phase] = (current, '')
                     print(f"Simulating Passthru Critical Load on Phase {phase} with Current {current}A.")
 
-                    await asyncio.sleep((REFRESH_PERIOD + 1) * 2)
+                    await asyncio.sleep((REFRESH_PERIOD + 1) * 3)
 
                     simulated_values['output_currents'].pop(phase, None)
                     simulated_values.pop('ve_bus_state', None)
