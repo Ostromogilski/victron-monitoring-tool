@@ -462,6 +462,7 @@ async def developer_menu():
     dev_mode = True
     reset_last_values = True
     print("Victron API polling is paused. Entering Developer Menu.")
+    config = load_config()
     while True:
         print("\nDeveloper Menu - Simulate States")
         print("1. Simulate Grid Down")
@@ -510,41 +511,40 @@ async def developer_menu():
                 print("Invalid input. Please enter numeric values for phase and voltage.")
         elif choice == '8':
             phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            voltage_input = (await aioconsole.ainput("Enter output voltage for the phase: ")).strip()
-            current_input = (await aioconsole.ainput("Enter output current for the phase: ")).strip()
+            power_input = (await aioconsole.ainput("Enter desired power in W for the phase: ")).strip()
             try:
                 phase = int(phase)
-                voltage = float(voltage_input)
-                current = float(current_input)
+                power = float(power_input)
                 if phase in [1, 2, 3]:
+                    # Get nominal voltage from settings
+                    voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])
+                    current = power / voltage
+                    simulated_values['grid_status'] = (2, 'Grid Down')
                     simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
                     simulated_values['output_currents'] = simulated_values.get('output_currents', {})
                     simulated_values['output_voltages'][phase] = (voltage, '')
                     simulated_values['output_currents'][phase] = (current, '')
-                    print(f"Simulating Critical Load on Phase {phase} with Voltage {voltage}V and Current {current}A.")
+                    print(f"Simulating Critical Load on Phase {phase} with Power {power}W.")
                 else:
                     print("Invalid phase number.")
             except ValueError:
-                print("Invalid input. Please enter numeric values for phase, voltage, and current.")
+                print("Invalid input. Please enter numeric values for phase and power.")
         elif choice == '9':
             phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            voltage_input = (await aioconsole.ainput("Enter output voltage for the phase: ")).strip()
-            current_input = (await aioconsole.ainput("Enter output current for the phase: ")).strip()
+            current_input = (await aioconsole.ainput("Enter desired current in A for the phase: ")).strip()
             try:
                 phase = int(phase)
-                voltage = float(voltage_input)
                 current = float(current_input)
                 if phase in [1, 2, 3]:
                     simulated_values['ve_bus_state'] = PASSTHRU_STATE
-                    simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
+                    simulated_values['grid_status'] = (0, 'Grid Restored')
                     simulated_values['output_currents'] = simulated_values.get('output_currents', {})
-                    simulated_values['output_voltages'][phase] = (voltage, '')
                     simulated_values['output_currents'][phase] = (current, '')
-                    print(f"Simulating Passthru Critical Load on Phase {phase} with Voltage {voltage}V and Current {current}A.")
+                    print(f"Simulating Passthru Critical Load on Phase {phase} with Current {current}A.")
                 else:
                     print("Invalid phase number.")
             except ValueError:
-                print("Invalid input. Please enter numeric values for phase, voltage, and current.")
+                print("Invalid input. Please enter numeric values for phase and current.")
         elif choice == '10':
             dev_mode = False
             reset_last_values = True  # Reset last known states
