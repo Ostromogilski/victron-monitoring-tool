@@ -859,4 +859,5 @@ async def monitor():
 
 # Run the monitoring loop
 if __name__ == '__main__':
+    main()
     asyncio.run(monitor())
