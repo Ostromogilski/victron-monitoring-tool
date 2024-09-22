@@ -519,159 +519,6 @@ def developer_menu():
         else:
             print("Invalid choice. Please try again.")
 
-# Main menu
-async def main():
-    config = load_config()
-    if not sys.stdin.isatty():
-        print("Running in non-interactive mode. Starting monitor.")
-        await monitor()
-        return
-
-    # Start the monitor function as a background task
-    asyncio.create_task(monitor())
-
-    while True:
-        config = load_config()
-        quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
-            if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
-
-        current_language = config['DEFAULT'].get('LANGUAGE', 'en')
-        language_name = "Українська" if current_language == 'uk' else "English"
-
-        service_running_status = get_service_running_status()
-
-        service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
-
-        tuya_configured = is_tuya_configured(config)
-        tuya_status = "(Configured)" if tuya_configured else "(Not Configured)"
-
-        print(f"Status: {service_running_status}")
-        print("Please choose an option:")
-        print(f"1. Configuration")
-        print(f"2. Enable or disable service at startup {service_status}")
-        print(f"3. Message language ({language_name})")
-        print(f"4. Set Quiet Hours ({quiet_hours_status})")
-        print(f"5. Configure Tuya Devices {tuya_status}")
-        print("6. Restart Service")
-        print("7. View Logs")
-        print("8. Developer Menu")
-        print("9. Exit")
-
-        choice = input("Enter your choice (1-9): ")
-
-        if choice == '1':
-            setup_config()
-        elif choice == '2':
-            config = load_config()
-            if validate_config(config):
-                enable_startup()
-            else:
-                print("Cannot enable service. Please complete the configuration first.")
-        elif choice == '3':
-            setup_language()
-        elif choice == '4':
-            setup_quiet_hours()
-        elif choice == '5':
-            configure_tuya_devices()
-        elif choice == '6':
-            restart_service()
-        elif choice == '7':
-            view_logs()
-        elif choice == '8':
-            developer_menu()
-        elif choice == '9':
-            sys.exit(0)
-        else:
-            print("Invalid choice. Please try again.")
-
-if __name__ == '__main__':
-    asyncio.run(main())
-    
-# Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
-def get_status(VICTRON_API_URL, API_KEY):
-    headers = {
-        'x-authorization': f'Token {API_KEY}',
-        'Content-Type': 'application/json'
-    }
-    try:
-        response = requests.get(VICTRON_API_URL, headers=headers)
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as http_err:
-        logging.error(f"HTTP error occurred: {http_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.ConnectionError as conn_err:
-        logging.error(f"Error connecting: {conn_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.Timeout as timeout_err:
-        logging.error(f"Timeout error: {timeout_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.RequestException as req_err:
-        logging.error(f"Request error: {req_err}")
-        return None, None, None, None, None, None, None
-
-    try:
-        diagnostics = response.json()
-        grid_status, ve_bus_status, low_battery_status = None, None, None
-        voltage_phases = {1: None, 2: None, 3: None}
-        output_voltages = {1: None, 2: None, 3: None}
-        output_currents = {1: None, 2: None, 3: None}
-        ve_bus_state = None
-
-        if 'records' in diagnostics:
-            for diagnostic in diagnostics['records']:
-                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
-                    grid_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
-                    ve_bus_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
-                    ve_bus_state = diagnostic['rawValue']
-                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
-                    low_battery_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
-                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
-                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
-                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
-                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
-                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
-                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
-                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
-                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
-                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-
-        return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
-    except ValueError as e:
-        print("Error parsing JSON:", e)
-        return None, None, None, None, None, None, None
-
-# Async function to send a message to the Telegram group
-async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
-    local_tz = pytz.timezone(TIMEZONE)
-    current_hour = datetime.now(local_tz).hour
-    config = load_config()
-    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
-    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
-
-    # Determine if the message should be sent silently
-    disable_notification = False
-    if quiet_hours_start is not None and quiet_hours_end is not None:
-        if quiet_hours_start < quiet_hours_end:
-            disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
-        else:  # Handles the case where quiet hours span midnight
-            disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
-
-    if is_test_message:
-        message = '👨🏻‍💻 TEST MESSAGE\n' + message
-
-    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
-
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -904,6 +751,160 @@ async def monitor():
         except Exception as e:
             logging.error(f"Error: {e}")
             await asyncio.sleep(REFRESH_PERIOD)
+
+# Main menu
+async def main():
+    config = load_config()
+    if not sys.stdin.isatty():
+        print("Running in non-interactive mode. Starting monitor.")
+        await monitor()
+        return
+
+    # Start the monitor function as a background task
+    asyncio.create_task(monitor())
+
+    while True:
+        config = load_config()
+        quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
+            if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
+
+        current_language = config['DEFAULT'].get('LANGUAGE', 'en')
+        language_name = "Українська" if current_language == 'uk' else "English"
+
+        service_running_status = get_service_running_status()
+
+        service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
+
+        tuya_configured = is_tuya_configured(config)
+        tuya_status = "(Configured)" if tuya_configured else "(Not Configured)"
+
+        print(f"Status: {service_running_status}")
+        print("Please choose an option:")
+        print(f"1. Configuration")
+        print(f"2. Enable or disable service at startup {service_status}")
+        print(f"3. Message language ({language_name})")
+        print(f"4. Set Quiet Hours ({quiet_hours_status})")
+        print(f"5. Configure Tuya Devices {tuya_status}")
+        print("6. Restart Service")
+        print("7. View Logs")
+        print("8. Developer Menu")
+        print("9. Exit")
+
+        choice = input("Enter your choice (1-9): ")
+
+        if choice == '1':
+            setup_config()
+        elif choice == '2':
+            config = load_config()
+            if validate_config(config):
+                enable_startup()
+            else:
+                print("Cannot enable service. Please complete the configuration first.")
+        elif choice == '3':
+            setup_language()
+        elif choice == '4':
+            setup_quiet_hours()
+        elif choice == '5':
+            configure_tuya_devices()
+        elif choice == '6':
+            restart_service()
+        elif choice == '7':
+            view_logs()
+        elif choice == '8':
+            developer_menu()
+        elif choice == '9':
+            sys.exit(0)
+        else:
+            print("Invalid choice. Please try again.")
+
+if __name__ == '__main__':
+    asyncio.run(main())
+    
+# Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
+def get_status(VICTRON_API_URL, API_KEY):
+    headers = {
+        'x-authorization': f'Token {API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.get(VICTRON_API_URL, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        logging.error(f"HTTP error occurred: {http_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.ConnectionError as conn_err:
+        logging.error(f"Error connecting: {conn_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.Timeout as timeout_err:
+        logging.error(f"Timeout error: {timeout_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.RequestException as req_err:
+        logging.error(f"Request error: {req_err}")
+        return None, None, None, None, None, None, None
+
+    try:
+        diagnostics = response.json()
+        grid_status, ve_bus_status, low_battery_status = None, None, None
+        voltage_phases = {1: None, 2: None, 3: None}
+        output_voltages = {1: None, 2: None, 3: None}
+        output_currents = {1: None, 2: None, 3: None}
+        ve_bus_state = None
+
+        if 'records' in diagnostics:
+            for diagnostic in diagnostics['records']:
+                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
+                    grid_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
+                    ve_bus_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
+                    ve_bus_state = diagnostic['rawValue']
+                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
+                    low_battery_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
+                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
+                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
+                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
+                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
+                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
+                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
+                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
+                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
+                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+
+        return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
+    except ValueError as e:
+        print("Error parsing JSON:", e)
+        return None, None, None, None, None, None, None
+
+# Async function to send a message to the Telegram group
+async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
+    local_tz = pytz.timezone(TIMEZONE)
+    current_hour = datetime.now(local_tz).hour
+    config = load_config()
+    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
+    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
+
+    # Determine if the message should be sent silently
+    disable_notification = False
+    if quiet_hours_start is not None and quiet_hours_end is not None:
+        if quiet_hours_start < quiet_hours_end:
+            disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
+        else:  # Handles the case where quiet hours span midnight
+            disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
+
+    if is_test_message:
+        message = '👨🏻‍💻 TEST MESSAGE\n' + message
+
+    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
+
 
 if __name__ == '__main__':
     monitor_thread = threading.Thread(target=start_monitor)
