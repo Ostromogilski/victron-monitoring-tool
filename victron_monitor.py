@@ -463,6 +463,7 @@ async def developer_menu():
     reset_last_values = True
     print("Victron API polling is paused. Entering Developer Menu.")
     config = load_config()
+    REFRESH_PERIOD = int(config['DEFAULT'].get('REFRESH_PERIOD', 5))
     while True:
         print("\nDeveloper Menu - Simulate States")
         print("1. Simulate Grid Down")
