@@ -518,6 +518,74 @@ def developer_menu():
             break
         else:
             print("Invalid choice. Please try again.")
+
+# Main menu
+async def main():
+    config = load_config()
+    if not sys.stdin.isatty():
+        print("Running in non-interactive mode. Starting monitor.")
+        await monitor()
+        return
+
+    # Start the monitor function as a background task
+    asyncio.create_task(monitor())
+
+    while True:
+        config = load_config()
+        quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
+            if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
+
+        current_language = config['DEFAULT'].get('LANGUAGE', 'en')
+        language_name = "Українська" if current_language == 'uk' else "English"
+
+        service_running_status = get_service_running_status()
+
+        service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
+
+        tuya_configured = is_tuya_configured(config)
+        tuya_status = "(Configured)" if tuya_configured else "(Not Configured)"
+
+        print(f"Status: {service_running_status}")
+        print("Please choose an option:")
+        print(f"1. Configuration")
+        print(f"2. Enable or disable service at startup {service_status}")
+        print(f"3. Message language ({language_name})")
+        print(f"4. Set Quiet Hours ({quiet_hours_status})")
+        print(f"5. Configure Tuya Devices {tuya_status}")
+        print("6. Restart Service")
+        print("7. View Logs")
+        print("8. Developer Menu")
+        print("9. Exit")
+
+        choice = input("Enter your choice (1-9): ")
+
+        if choice == '1':
+            setup_config()
+        elif choice == '2':
+            config = load_config()
+            if validate_config(config):
+                enable_startup()
+            else:
+                print("Cannot enable service. Please complete the configuration first.")
+        elif choice == '3':
+            setup_language()
+        elif choice == '4':
+            setup_quiet_hours()
+        elif choice == '5':
+            configure_tuya_devices()
+        elif choice == '6':
+            restart_service()
+        elif choice == '7':
+            view_logs()
+        elif choice == '8':
+            developer_menu()
+        elif choice == '9':
+            sys.exit(0)
+        else:
+            print("Invalid choice. Please try again.")
+
+if __name__ == '__main__':
+    asyncio.run(main())
     
 # Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
 def get_status(VICTRON_API_URL, API_KEY):
@@ -603,75 +671,6 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message
         message = '👨🏻‍💻 TEST MESSAGE\n' + message
 
     await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
-
-
-# Main menu
-async def main():
-    config = load_config()
-    if not sys.stdin.isatty():
-        print("Running in non-interactive mode. Starting monitor.")
-        await monitor()
-        return
-
-    # Start the monitor function as a background task
-    asyncio.create_task(monitor())
-
-    while True:
-        config = load_config()
-        quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
-            if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
-
-        current_language = config['DEFAULT'].get('LANGUAGE', 'en')
-        language_name = "Українська" if current_language == 'uk' else "English"
-
-        service_running_status = get_service_running_status()
-
-        service_status = "(Enabled)" if is_service_enabled() else "(Disabled)"
-
-        tuya_configured = is_tuya_configured(config)
-        tuya_status = "(Configured)" if tuya_configured else "(Not Configured)"
-
-        print(f"Status: {service_running_status}")
-        print("Please choose an option:")
-        print(f"1. Configuration")
-        print(f"2. Enable or disable service at startup {service_status}")
-        print(f"3. Message language ({language_name})")
-        print(f"4. Set Quiet Hours ({quiet_hours_status})")
-        print(f"5. Configure Tuya Devices {tuya_status}")
-        print("6. Restart Service")
-        print("7. View Logs")
-        print("8. Developer Menu")
-        print("9. Exit")
-
-        choice = input("Enter your choice (1-9): ")
-
-        if choice == '1':
-            setup_config()
-        elif choice == '2':
-            config = load_config()
-            if validate_config(config):
-                enable_startup()
-            else:
-                print("Cannot enable service. Please complete the configuration first.")
-        elif choice == '3':
-            setup_language()
-        elif choice == '4':
-            setup_quiet_hours()
-        elif choice == '5':
-            configure_tuya_devices()
-        elif choice == '6':
-            restart_service()
-        elif choice == '7':
-            view_logs()
-        elif choice == '8':
-            developer_menu()
-        elif choice == '9':
-            sys.exit(0)
-        else:
-            print("Invalid choice. Please try again.")
-
-if __name__ == '__main__':
-    asyncio.run(main())
 
 if __name__ == '__main__':
     monitor_thread = threading.Thread(target=start_monitor)
