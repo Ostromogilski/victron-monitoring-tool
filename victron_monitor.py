@@ -873,7 +873,7 @@ async def monitor():
                             power_issue_counters[phase] += 1
                             if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:
                                 logging.info(f"Phase {phase} - PASSTHRU MAX CURRENT ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {current:.2f}A")
-                                message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{current}', f"{current:.2f}A").replace('{timestamp}', timestamp)
+                                message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{current}', f"{current:.2f}").replace('{timestamp}', timestamp)
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
                                 power_issue_reported[phase] = True
                         elif current < passthru_current_reset_threshold:
