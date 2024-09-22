@@ -13,6 +13,9 @@ from logging.handlers import RotatingFileHandler
 import readline
 from tuya_connector import TuyaOpenAPI
 
+dev_mode = False
+dev_mode_states = {}
+
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.ini')
@@ -413,6 +416,68 @@ def restart_service():
     else:
         print("Service is not enabled.")
 
+def developer_menu():
+    global dev_mode, dev_mode_states
+    dev_mode = True
+    dev_mode_states = {}
+    while True:
+        print("\nDeveloper Menu:")
+        print("1. Simulate Grid Down")
+        print("2. Simulate Grid Restored")
+        print("3. Simulate VE.Bus Error")
+        print("4. Simulate Low Battery")
+        print("5. Simulate Voltage Low on Phase")
+        print("6. Simulate Voltage High on Phase")
+        print("7. Simulate Critical Load on Phase")
+        print("8. Exit Developer Menu")
+        
+        choice = input("Enter your choice (1-8): ").strip()
+        
+        if choice == '1':
+            dev_mode_states['grid_status'] = (2, 'Grid Failure')
+            print("Simulating Grid Down...")
+        elif choice == '2':
+            dev_mode_states['grid_status'] = (0, 'Grid OK')
+            print("Simulating Grid Restored...")
+        elif choice == '3':
+            error_message = input("Enter VE.Bus Error message: ").strip()
+            dev_mode_states['ve_bus_status'] = (1, error_message or 'VE.Bus Error')
+            print("Simulating VE.Bus Error...")
+        elif choice == '4':
+            dev_mode_states['low_battery_status'] = (2, 'Critical battery level')
+            print("Simulating Low Battery...")
+        elif choice == '5':
+            phase = input("Enter phase number (1-3): ").strip()
+            if phase in ['1', '2', '3']:
+                dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (1.0, f"1.0V")
+                print(f"Simulating Voltage Low on Phase {phase}...")
+            else:
+                print("Invalid phase number.")
+        elif choice == '6':
+            phase = input("Enter phase number (1-3): ").strip()
+            if phase in ['1', '2', '3']:
+                dev_mode_states.setdefault('voltage_phases', {})[int(phase)] = (999.0, f"999.0V")
+                print(f"Simulating Voltage High on Phase {phase}...")
+            else:
+                print("Invalid phase number.")
+        elif choice == '7':
+            phase = input("Enter phase number (1-3): ").strip()
+            if phase in ['1', '2', '3']:
+                # Simulate high output current
+                dev_mode_states.setdefault('output_voltages', {})[int(phase)] = (230.0, '230.0V')
+                dev_mode_states.setdefault('output_currents', {})[int(phase)] = (50.0, '50.0A')
+                dev_mode_states['grid_status'] = (2, 'Grid Failure')  # Assume grid is down
+                print(f"Simulating Critical Load on Phase {phase}...")
+            else:
+                print("Invalid phase number.")
+        elif choice == '8':
+            print("Exiting Developer Menu...")
+            dev_mode = False
+            dev_mode_states = {}
+            break
+        else:
+            print("Invalid choice. Please try again.")
+
 def is_tuya_configured(config):
     required_keys = [
         'TUYA_ACCESS_ID',
@@ -452,9 +517,10 @@ def main():
         print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
-        print("8. Exit")
+        print("8. Developer Menu")
+        print("9. Exit")
         
-        choice = input("Enter your choice (1-8): ")
+        choice = input("Enter your choice (1-9): ")
 
         if choice == '1':
             setup_config()
@@ -475,6 +541,8 @@ def main():
         elif choice == '7':
             view_logs()
         elif choice == '8':
+            developer_menu()
+        elif choice == '9':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
@@ -548,6 +616,8 @@ def get_status(VICTRON_API_URL, API_KEY):
 
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
+    if dev_mode:
+        message = "👨🏻‍💻 TEST MESSAGE\n" + message
     local_tz = pytz.timezone(TIMEZONE)
     current_hour = datetime.now(local_tz).hour
     config = load_config()
@@ -566,6 +636,7 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE):
 
 # Monitor loop
 async def monitor():
+    global dev_mode, dev_mode_states
     last_grid_status = None
     last_ve_bus_status = None
     last_low_battery_status = None
@@ -588,7 +659,7 @@ async def monitor():
             API_KEY = settings['API_KEY']
             REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
             TIMEZONE = settings['TIMEZONE']
-            
+
             # Check if essential configuration values are set
             if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
                 logging.error("Essential configuration values are missing. Please set them in the configuration.")
@@ -601,9 +672,21 @@ async def monitor():
                 return
 
             local_tz = pytz.timezone(TIMEZONE)
-            
-            # Fetch the current status from the Victron API
-            grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+
+            # If dev_mode is True, use simulated values
+            if dev_mode:
+                # Use values from dev_mode_states
+                grid_status = dev_mode_states.get('grid_status', last_grid_status)
+                ve_bus_status = dev_mode_states.get('ve_bus_status', last_ve_bus_status)
+                low_battery_status = dev_mode_states.get('low_battery_status', last_low_battery_status)
+                voltage_phases = dev_mode_states.get('voltage_phases', last_voltage_phases)
+                output_voltages = dev_mode_states.get('output_voltages', {})
+                output_currents = dev_mode_states.get('output_currents', {})
+                ve_bus_state = dev_mode_states.get('ve_bus_state', None)
+            else:
+                # Fetch the current status from the Victron API
+                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+
             timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
 
             # Skip sending messages on the first run to set the initial states
