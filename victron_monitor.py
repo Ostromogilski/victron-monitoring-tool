@@ -460,7 +460,6 @@ async def developer_menu():
     global reset_last_values
     global simulated_values  # Ensure this is declared global
     dev_mode = True
-    reset_last_values = True
     print("Victron API polling is paused. Entering Developer Menu.")
     config = load_config()
     REFRESH_PERIOD = int(config['DEFAULT'].get('REFRESH_PERIOD', 5))
@@ -697,8 +696,8 @@ async def monitor():
                 last_ve_bus_status = None
                 last_low_battery_status = None
                 last_voltage_phases = {1: None, 2: None, 3: None}
-                #power_issue_counters = {1: 0, 2: 0, 3: 0}
-                #power_issue_reported = {1: False, 2: False, 3: False}
+                power_issue_counters = {1: 0, 2: 0, 3: 0}
+                power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
                 reset_last_values = False
 
