@@ -519,6 +519,70 @@ def developer_menu():
         else:
             print("Invalid choice. Please try again.")
 
+# Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
+def get_status(VICTRON_API_URL, API_KEY):
+    headers = {
+        'x-authorization': f'Token {API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.get(VICTRON_API_URL, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        logging.error(f"HTTP error occurred: {http_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.ConnectionError as conn_err:
+        logging.error(f"Error connecting: {conn_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.Timeout as timeout_err:
+        logging.error(f"Timeout error: {timeout_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.RequestException as req_err:
+        logging.error(f"Request error: {req_err}")
+        return None, None, None, None, None, None, None
+
+    try:
+        diagnostics = response.json()
+        grid_status, ve_bus_status, low_battery_status = None, None, None
+        voltage_phases = {1: None, 2: None, 3: None}
+        output_voltages = {1: None, 2: None, 3: None}
+        output_currents = {1: None, 2: None, 3: None}
+        ve_bus_state = None
+
+        if 'records' in diagnostics:
+            for diagnostic in diagnostics['records']:
+                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
+                    grid_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
+                    ve_bus_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
+                    ve_bus_state = diagnostic['rawValue']
+                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
+                    low_battery_status = diagnostic['rawValue'], diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
+                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
+                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
+                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
+                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
+                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
+                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
+                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
+                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
+                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+
+        return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
+    except ValueError as e:
+        print("Error parsing JSON:", e)
+        return None, None, None, None, None, None, None
+
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -819,70 +883,6 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-    
-# Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
-def get_status(VICTRON_API_URL, API_KEY):
-    headers = {
-        'x-authorization': f'Token {API_KEY}',
-        'Content-Type': 'application/json'
-    }
-    try:
-        response = requests.get(VICTRON_API_URL, headers=headers)
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as http_err:
-        logging.error(f"HTTP error occurred: {http_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.ConnectionError as conn_err:
-        logging.error(f"Error connecting: {conn_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.Timeout as timeout_err:
-        logging.error(f"Timeout error: {timeout_err}")
-        return None, None, None, None, None, None, None
-    except requests.exceptions.RequestException as req_err:
-        logging.error(f"Request error: {req_err}")
-        return None, None, None, None, None, None, None
-
-    try:
-        diagnostics = response.json()
-        grid_status, ve_bus_status, low_battery_status = None, None, None
-        voltage_phases = {1: None, 2: None, 3: None}
-        output_voltages = {1: None, 2: None, 3: None}
-        output_currents = {1: None, 2: None, 3: None}
-        ve_bus_state = None
-
-        if 'records' in diagnostics:
-            for diagnostic in diagnostics['records']:
-                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
-                    grid_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
-                    ve_bus_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
-                    ve_bus_state = diagnostic['rawValue']
-                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
-                    low_battery_status = diagnostic['rawValue'], diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
-                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
-                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
-                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
-                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
-                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
-                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
-                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
-                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
-                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-
-        return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
-    except ValueError as e:
-        print("Error parsing JSON:", e)
-        return None, None, None, None, None, None, None
 
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
@@ -907,7 +907,4 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message
 
 
 if __name__ == '__main__':
-    monitor_thread = threading.Thread(target=start_monitor)
-    monitor_thread.daemon = True
-    monitor_thread.start()
-    main()
+    asyncio.run(main())
