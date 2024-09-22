@@ -873,15 +873,20 @@ async def monitor():
                         logging.debug(f"Phase {phase} - Power: {power:.2f}W, Power Limit: {power_limit:.2f}W, Counter: {power_issue_counters[phase]}, Reported: {power_issue_reported[phase]}")
 
                         if power > power_limit:
+                            logging.debug(f"Phase {phase} - Condition power > power_limit is True")
                             power_issue_counters[phase] += 1
-                            if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:  # If power > power_limit for 2 refreshes
+                            logging.debug(f"Phase {phase} - Power exceeded limit. Counter incremented to {power_issue_counters[phase]}")
+                            if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:
                                 logging.info(f"Phase {phase} - MAX POWER ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {output_currents[phase][0]}A, Power: {power:.2f}W")
                                 message = messages['CRITICAL_LOAD_MSG'].replace('{phase}', str(phase)).replace('{power}', f"{power:.2f}").replace('{timestamp}', timestamp)
                                 await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
                                 power_issue_reported[phase] = True
                         elif power < power_reset_threshold:
+                            logging.debug(f"Phase {phase} - Power below reset threshold. Counter reset.")
                             power_issue_counters[phase] = 0
                             power_issue_reported[phase] = False
+                        else:
+                            logging.debug(f"Phase {phase} - Power within normal range.")
                     else:
                         power_issue_counters[phase] = 0
 
