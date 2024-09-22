@@ -61,6 +61,7 @@ DEFAULT_SETTINGS = {
     'NOMINAL_VOLTAGE': '230',
     'QUIET_HOURS_START': '',
     'QUIET_HOURS_END': '',
+    'QUIET_DAYS': '',
     'TIMEZONE': 'UTC',
     'LANGUAGE': 'en',
     'INSTALLATION_ID': '',
@@ -336,18 +337,37 @@ def setup_quiet_hours():
                     config['DEFAULT']['QUIET_HOURS_END'] = str(end)
                     print(f"Quiet Hours set from {start}:00 to {end}:00")
                 else:
-                    print("Invalid input for hours. Please enter values between 0 and 23.")
+                    print("Invalid input for end hour. Please enter a valid hour between 0 and 23.")
+                    return
             else:
                 print("Invalid input for end hour. Please enter a valid hour between 0 and 23.")
+                return
         else:
             print("Invalid input for start hour. Please enter a valid hour between 0 and 23.")
+            return
     else:
         config['DEFAULT']['QUIET_HOURS_START'] = ''
         config['DEFAULT']['QUIET_HOURS_END'] = ''
         print("Quiet Hours Disabled")
 
+    print("\nSet Quiet Days (1-7 for Monday-Sunday). On these days, messages will be sent silently all day.")
+    days_input = input("Enter quiet days (comma-separated), or leave blank to disable: ").strip()
+    if days_input:
+        days = [int(day.strip()) for day in days_input.split(',') if day.strip().isdigit() and 1 <= int(day.strip()) <= 7]
+        if days:
+            config['DEFAULT']['QUIET_DAYS'] = ','.join(str(day) for day in days)
+            day_names_map = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}
+            quiet_days_names = ', '.join(day_names_map.get(day, str(day)) for day in days)
+            print(f"Quiet Days set: {quiet_days_names}")
+        else:
+            print("Invalid input for days. Please enter numbers between 1 and 7, comma-separated.")
+            return
+    else:
+        config['DEFAULT']['QUIET_DAYS'] = ''
+        print("Quiet Days Disabled")
+
     save_config(config)
-    print("Quiet Hours configuration saved successfully.")
+    print("Quiet Hours and Quiet Days configuration saved successfully.")
 
 def configure_tuya_devices():
     config = load_config()
@@ -594,18 +614,30 @@ def get_status(VICTRON_API_URL, API_KEY):
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
     local_tz = pytz.timezone(TIMEZONE)
-    current_hour = datetime.now(local_tz).hour
+    now_local = datetime.now(local_tz)
+    current_hour = now_local.hour
+    current_day = now_local.weekday()  # 0 (Monday) to 6 (Sunday)
+    current_day_user_numbering = current_day + 1  # 1 (Monday) to 7 (Sunday)
     config = load_config()
     quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
     quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
+    quiet_days_str = config['DEFAULT'].get('QUIET_DAYS', '')
+    if quiet_days_str:
+        quiet_days = [int(day.strip()) for day in quiet_days_str.split(',') if day.strip().isdigit()]
+    else:
+        quiet_days = []
 
     # Determine if the message should be sent silently
     disable_notification = False
-    if quiet_hours_start is not None and quiet_hours_end is not None:
-        if quiet_hours_start < quiet_hours_end:
-            disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
-        else:  # Handles the case where quiet hours span midnight
-            disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
+
+    if current_day_user_numbering in quiet_days:
+        disable_notification = True
+    else:
+        if quiet_hours_start is not None and quiet_hours_end is not None:
+            if quiet_hours_start < quiet_hours_end:
+                disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
+            else:
+                disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
 
     if is_test_message:
         message = '👨🏻‍💻 TEST MESSAGE\n' + message
@@ -861,8 +893,21 @@ async def main():
 
     while True:
         config = load_config()
-        quiet_hours_status = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00" \
-            if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END'] else "Disabled"
+        quiet_hours_info = ""
+        if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END']:
+            quiet_hours_info = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00"
+        else:
+            quiet_hours_info = "Disabled"
+
+        if config['DEFAULT']['QUIET_DAYS']:
+            day_names_map = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'}
+            quiet_days_numbers = [int(day) for day in config['DEFAULT']['QUIET_DAYS'].split(',')]
+            quiet_days_names = ', '.join(day_names_map.get(day, str(day)) for day in quiet_days_numbers)
+            quiet_days_info = f"{quiet_days_names}"
+        else:
+            quiet_days_info = "Disabled"
+
+        quiet_hours_status = f"Quiet Hours: {quiet_hours_info}, Quiet Days: {quiet_days_info}"
 
         current_language = config['DEFAULT'].get('LANGUAGE', 'en')
         language_name = "Українська" if current_language == 'uk' else "English"
@@ -879,7 +924,7 @@ async def main():
         print(f"1. Configuration")
         print(f"2. Enable or disable service at startup {service_status}")
         print(f"3. Message language ({language_name})")
-        print(f"4. Set Quiet Hours ({quiet_hours_status})")
+        print(f"4. Set Quiet Hours and Quiet Days ({quiet_hours_status})")
         print(f"5. Configure Tuya Devices {tuya_status}")
         print("6. Restart Service")
         print("7. View Logs")
