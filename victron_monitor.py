@@ -96,6 +96,13 @@ def load_config():
         create_default_config()
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
+    updated = False
+    for key, value in DEFAULT_SETTINGS.items():
+        if key not in config['DEFAULT']:
+            config['DEFAULT'][key] = value
+            updated = True
+    if updated:
+        save_config(config)
     return config
 
 # Function to save the configuration file
