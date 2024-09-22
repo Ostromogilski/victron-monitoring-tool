@@ -521,12 +521,15 @@ def developer_menu():
             print("Invalid choice. Please try again.")
 
 # Main menu
-def main():
+async def main():
     config = load_config()
     if not sys.stdin.isatty():
         print("Running in non-interactive mode. Starting monitor.")
-        asyncio.run(monitor())
+        await monitor()
         return
+
+    # Start the monitor function as a background task
+    asyncio.create_task(monitor())
 
     while True:
         config = load_config()
@@ -583,11 +586,7 @@ def main():
             print("Invalid choice. Please try again.")
 
 if __name__ == '__main__':
-    if sys.stdin.isatty():
-        monitor_task = asyncio.create_task(monitor())
-        main()
-    else:
-        asyncio.run(monitor())
+    asyncio.run(main())
     
 # Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
 def get_status(VICTRON_API_URL, API_KEY):
