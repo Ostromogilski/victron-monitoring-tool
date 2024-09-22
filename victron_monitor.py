@@ -672,6 +672,239 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message
 
     await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
 
+# Monitor loop
+async def monitor():
+    global dev_mode
+    global simulated_values
+    global reset_last_values
+
+    last_grid_status = None
+    last_ve_bus_status = None
+    last_low_battery_status = None
+    voltage_issue_reported = {1: False, 2: False, 3: False}
+    last_voltage_phases = {1: None, 2: None, 3: None}
+    power_issue_counters = {1: 0, 2: 0, 3: 0}
+    power_issue_reported = {1: False, 2: False, 3: False}
+    first_run = True
+    tuya_controller = None
+
+    while True:
+        try:
+            if reset_last_values:
+                last_grid_status = None
+                last_ve_bus_status = None
+                last_low_battery_status = None
+                last_voltage_phases = {1: None, 2: None, 3: None}
+                reset_last_values = False
+
+            config = load_config()
+            settings = config['DEFAULT']
+            messages = load_messages(config)
+
+            TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
+            CHAT_ID = settings['CHAT_ID']
+            VICTRON_API_URL = settings['VICTRON_API_URL']
+            API_KEY = settings['API_KEY']
+            REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
+            TIMEZONE = settings['TIMEZONE']
+
+            # Check if essential configuration values are set
+            if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
+                logging.error("Essential configuration values are missing. Please set them in the configuration.")
+                return  # Exit the monitoring function without running it
+
+            try:
+                bot = Bot(token=TELEGRAM_TOKEN)
+            except InvalidToken:
+                logging.error("Invalid Telegram token provided. Please check your configuration.")
+                return
+
+            local_tz = pytz.timezone(TIMEZONE)
+
+            # Fetch the current status from the Victron API or use simulated values
+            if dev_mode:
+                # Use simulated values
+                grid_status = simulated_values.get('grid_status', last_grid_status)
+                ve_bus_status = simulated_values.get('ve_bus_status', last_ve_bus_status)
+                low_battery_status = simulated_values.get('low_battery_status', last_low_battery_status)
+                voltage_phases = simulated_values.get('voltage_phases', last_voltage_phases)
+                output_voltages = simulated_values.get('output_voltages', {})
+                output_currents = simulated_values.get('output_currents', {})
+                ve_bus_state = simulated_values.get('ve_bus_state', None)
+                # Simulated timestamp
+                timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
+            else:
+                # Fetch from API
+                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
+
+            # Skip sending messages on the first run to set the initial states
+            if first_run:
+                last_grid_status = grid_status
+                last_ve_bus_status = ve_bus_status
+                last_low_battery_status = low_battery_status
+                last_voltage_phases = voltage_phases
+                first_run = False
+                await asyncio.sleep(REFRESH_PERIOD)
+                continue
+
+            # Initialize TuyaController if credentials are available
+            tuya_enabled = all([
+                settings.get('TUYA_ACCESS_ID'),
+                settings.get('TUYA_ACCESS_KEY'),
+                settings.get('TUYA_API_ENDPOINT'),
+                settings.get('TUYA_DEVICE_IDS')
+            ])
+
+            if tuya_enabled and tuya_controller is None:
+                tuya_device_ids = [id.strip() for id in settings['TUYA_DEVICE_IDS'].split(',')]
+                tuya_controller = TuyaController(
+                    settings['TUYA_ACCESS_ID'],
+                    settings['TUYA_ACCESS_KEY'],
+                    settings['TUYA_API_ENDPOINT'],
+                    tuya_device_ids
+                )
+                logging.info("Tuya Controller initialized.")
+            elif not tuya_enabled:
+                tuya_controller = None
+                logging.info("Tuya configuration not found. Skipping Tuya device control.")
+
+            # Check and send grid status updates
+            if grid_status != last_grid_status:
+                if grid_status and grid_status[0] == 2:
+                    message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+
+                    # Turn off Tuya devices
+                    if tuya_controller:
+                        try:
+                            tuya_controller.turn_devices_off()
+                            logging.info("Tuya devices turned off due to grid down.")
+                        except Exception as e:
+                            logging.error(f"Error turning off Tuya devices: {e}")
+
+                elif grid_status and grid_status[0] == 0:
+                    # Grid is restored
+                    message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+
+                    # Turn on Tuya devices
+                    if tuya_controller:
+                        try:
+                            tuya_controller.turn_devices_on()
+                            logging.info("Tuya devices turned on due to grid restoration.")
+                        except Exception as e:
+                            logging.error(f"Error turning on Tuya devices: {e}")
+                last_grid_status = grid_status
+
+            # Check and send VE.Bus error updates independently
+            if ve_bus_status is not None and ve_bus_status != last_ve_bus_status:
+                if ve_bus_status[1] == "No error":
+                    message = messages['VE_BUS_RECOVERY_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                else:
+                    message = messages['VE_BUS_ERROR_MSG'].replace('{error}', ve_bus_status[1]).replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                last_ve_bus_status = ve_bus_status
+
+            # Check and send low battery status updates independently
+            if low_battery_status is not None and low_battery_status != last_low_battery_status:
+                if last_low_battery_status is None or last_low_battery_status[0] == 0:
+                    if low_battery_status[0] == 1:
+                        message = messages['LOW_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                    elif low_battery_status[0] == 2:
+                        message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                elif last_low_battery_status[0] == 1 and low_battery_status[0] == 2:
+                    message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+
+                last_low_battery_status = low_battery_status
+
+            # Check and send voltage phase updates independently
+            for phase in range(1, 4):
+                voltage = voltage_phases.get(phase)
+                last_voltage = last_voltage_phases.get(phase)
+
+                # Load nominal voltage and calculate thresholds
+                nominal_voltage = float(settings['NOMINAL_VOLTAGE'])
+                voltage_low_threshold = nominal_voltage * float(settings['VOLTAGE_LOW_THRESHOLD'])
+                voltage_high_threshold = nominal_voltage * float(settings['VOLTAGE_HIGH_THRESHOLD'])
+                voltage_normal_low = nominal_voltage * 0.955  # 4.5% less than nominal voltage
+                voltage_normal_high = nominal_voltage * 1.045  # 4.5% more than nominal voltage
+
+                if voltage is not None and voltage[0] > 0:  # Check if voltage (rawValue) is greater than 0
+                    # Handle low voltage
+                    if voltage[0] < voltage_low_threshold and not voltage_issue_reported[phase]:
+                        message = messages['VOLTAGE_LOW_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        voltage_issue_reported[phase] = True
+
+                    # Handle high voltage
+                    elif voltage[0] > voltage_high_threshold and not voltage_issue_reported[phase]:
+                        message = messages['VOLTAGE_HIGH_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        voltage_issue_reported[phase] = True
+
+                    # Handle voltage back to normal range
+                    elif voltage_normal_low <= voltage[0] <= voltage_normal_high and voltage_issue_reported[phase]:
+                        message = messages['VOLTAGE_NORMAL_MSG'].replace('{phase}', str(phase)).replace('{voltage}', f"{voltage[0]:.1f}").replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        voltage_issue_reported[phase] = False
+
+                last_voltage_phases[phase] = voltage
+
+            # Check power consumption on each phase if the grid is absent
+            if grid_status and grid_status[0] == 2:  # Assuming grid_status[0] == 2 means grid is down
+                for phase in range(1, 4):
+                    if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
+                        # Calculate power consumption by multiplying voltage and current
+                        power = output_voltages[phase][0] * output_currents[phase][0]
+                        max_power = float(settings['MAX_POWER'])
+                        power_limit = max_power * 0.98  # 2% less than MAX_POWER
+                        power_reset_threshold = max_power * 0.80  # 20% less than MAX_POWER
+
+                        if power > power_limit:
+                            power_issue_counters[phase] += 1
+                            if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:  # If power > power_limit for 2 refreshes
+                                logging.info(f"Phase {phase} - MAX POWER ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {output_currents[phase][0]}A, Power: {power:.2f}W")
+                                message = messages['CRITICAL_LOAD_MSG'].replace('{phase}', str(phase)).replace('{power}', f"{power:.2f}").replace('{timestamp}', timestamp)
+                                await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                                power_issue_reported[phase] = True
+                        elif power < power_reset_threshold:
+                            power_issue_counters[phase] = 0
+                            power_issue_reported[phase] = False
+                    else:
+                        power_issue_counters[phase] = 0
+
+            # Check power consumption on each phase if the VE.Bus state is "Passthru"
+            if ve_bus_state != PASSTHRU_STATE:
+                for phase in range(1, 4):
+                    if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
+                        current = output_currents[phase][0]
+
+                        passthru_current_limit = float(settings['PASSTHRU_CURRENT']) * 0.98  # 2% less than PASSTHRU_CURRENT
+                        passthru_current_reset_threshold = float(settings['PASSTHRU_CURRENT']) * 0.85  # 15% less than PASSTHRU_CURRENT
+
+                        if current > passthru_current_limit:
+                            power_issue_counters[phase] += 1
+                            if power_issue_counters[phase] >= 2 and not power_issue_reported[phase]:
+                                logging.info(f"Phase {phase} - PASSTHRU MAX CURRENT ALERT TRIGGERED! Voltage: {output_voltages[phase][0]}V, Current: {current:.2f}A")
+                                message = messages['PASSTHRU_MSG'].replace('{phase}', str(phase)).replace('{current}', f"{current:.2f}A").replace('{timestamp}', timestamp)
+                                await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                                power_issue_reported[phase] = True
+                        elif current < passthru_current_reset_threshold:
+                            power_issue_counters[phase] = 0
+                            power_issue_reported[phase] = False
+                    else:
+                        power_issue_counters[phase] = 0
+
+            await asyncio.sleep(REFRESH_PERIOD)
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            await asyncio.sleep(REFRESH_PERIOD)
+
 if __name__ == '__main__':
     monitor_thread = threading.Thread(target=start_monitor)
     monitor_thread.daemon = True
