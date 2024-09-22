@@ -675,13 +675,16 @@ async def monitor():
             # Check if essential configuration values are set
             if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
                 logging.error("Essential configuration values are missing. Please set them in the configuration.")
-                return  # Exit the monitoring function without running it
+                # Instead of returning, continue to the next iteration after waiting
+                await asyncio.sleep(REFRESH_PERIOD)
+                continue  # Skip this iteration
 
             try:
                 bot = Bot(token=TELEGRAM_TOKEN)
             except InvalidToken:
                 logging.error("Invalid Telegram token provided. Please check your configuration.")
-                return
+                await asyncio.sleep(REFRESH_PERIOD)
+                continue  # Skip this iteration
 
             local_tz = pytz.timezone(TIMEZONE)
 
@@ -702,6 +705,10 @@ async def monitor():
             else:
                 # Fetch the current status from the Victron API
                 grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                if grid_status is None:
+                    logging.error("Failed to retrieve data from Victron API.")
+                    await asyncio.sleep(REFRESH_PERIOD)
+                    continue  # Skip this iteration
 
             timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
 
