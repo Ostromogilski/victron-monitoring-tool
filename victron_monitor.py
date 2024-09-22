@@ -14,8 +14,10 @@ import readline
 from tuya_connector import TuyaOpenAPI
 import threading
 
+# Global variables
 dev_mode = False
 dev_mode_states = {}
+dev_mode_lock = threading.Lock()
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -417,13 +419,12 @@ def restart_service():
     else:
         print("Service is not enabled.")
 
-dev_mode_lock = threading.Lock()
-
 def developer_menu():
     global dev_mode, dev_mode_states
     with dev_mode_lock:
         dev_mode = True
         dev_mode_states = {}
+    print("\nDeveloper Mode Activated. Victron API polling is paused.")
     while True:
         print("\nDeveloper Menu:")
         print("1. Simulate Grid Down")
@@ -482,7 +483,7 @@ def developer_menu():
             else:
                 print("Invalid phase number.")
         elif choice == '8':
-            print("Exiting Developer Menu...")
+            print("Exiting Developer Menu. Victron API polling is resumed.")
             with dev_mode_lock:
                 dev_mode = False
                 dev_mode_states = {}
@@ -658,6 +659,7 @@ async def monitor():
     power_issue_reported = {1: False, 2: False, 3: False}
     first_run = True
     tuya_controller = None
+    last_known_states = {}  # Store the last known data from Victron API
 
     while True:
         try:
@@ -675,7 +677,6 @@ async def monitor():
             # Check if essential configuration values are set
             if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
                 logging.error("Essential configuration values are missing. Please set them in the configuration.")
-                # Instead of returning, continue to the next iteration after waiting
                 await asyncio.sleep(REFRESH_PERIOD)
                 continue  # Skip this iteration
 
@@ -692,16 +693,18 @@ async def monitor():
                 current_dev_mode = dev_mode
                 current_dev_mode_states = dev_mode_states.copy()
 
-            # If dev_mode is True, use simulated values
+            # If dev_mode is True, use last known data and simulated values
             if current_dev_mode:
-                # Use values from dev_mode_states
-                grid_status = current_dev_mode_states.get('grid_status', last_grid_status)
-                ve_bus_status = current_dev_mode_states.get('ve_bus_status', last_ve_bus_status)
-                low_battery_status = current_dev_mode_states.get('low_battery_status', last_low_battery_status)
-                voltage_phases = current_dev_mode_states.get('voltage_phases', last_voltage_phases)
-                output_voltages = current_dev_mode_states.get('output_voltages', {})
-                output_currents = current_dev_mode_states.get('output_currents', {})
-                ve_bus_state = current_dev_mode_states.get('ve_bus_state', None)
+                # Use last known states and override with dev_mode_states
+                data = last_known_states.copy()
+                data.update(current_dev_mode_states)
+                grid_status = data.get('grid_status', last_grid_status)
+                ve_bus_status = data.get('ve_bus_status', last_ve_bus_status)
+                low_battery_status = data.get('low_battery_status', last_low_battery_status)
+                voltage_phases = data.get('voltage_phases', last_voltage_phases)
+                output_voltages = data.get('output_voltages', {})
+                output_currents = data.get('output_currents', {})
+                ve_bus_state = data.get('ve_bus_state', None)
             else:
                 # Fetch the current status from the Victron API
                 grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
@@ -709,6 +712,17 @@ async def monitor():
                     logging.error("Failed to retrieve data from Victron API.")
                     await asyncio.sleep(REFRESH_PERIOD)
                     continue  # Skip this iteration
+
+                # Update last known states
+                last_known_states = {
+                    'grid_status': grid_status,
+                    've_bus_status': ve_bus_status,
+                    'low_battery_status': low_battery_status,
+                    'voltage_phases': voltage_phases,
+                    'output_voltages': output_voltages,
+                    'output_currents': output_currents,
+                    've_bus_state': ve_bus_state,
+                }
 
             timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
 
@@ -877,7 +891,7 @@ async def monitor():
             await asyncio.sleep(REFRESH_PERIOD)
 
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logging.error(f"Error in monitor loop: {e}")
             await asyncio.sleep(REFRESH_PERIOD)
 
 # Run the monitoring loop
