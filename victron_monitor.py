@@ -799,6 +799,14 @@ async def monitor():
                 grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
                 timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
 
+            logging.debug(f"Fetched grid_status: {grid_status}")
+            logging.debug(f"Fetched ve_bus_status: {ve_bus_status}")
+            logging.debug(f"Fetched low_battery_status: {low_battery_status}")
+            logging.debug(f"Fetched voltage_phases: {voltage_phases}")
+            logging.debug(f"Fetched output_voltages: {output_voltages}")
+            logging.debug(f"Fetched output_currents: {output_currents}")
+            logging.debug(f"Fetched ve_bus_state: {ve_bus_state}")
+
             # Skip sending messages on the first run to set the initial states
             if first_run:
                 last_grid_status = grid_status
