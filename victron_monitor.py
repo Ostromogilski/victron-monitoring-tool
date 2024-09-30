@@ -18,6 +18,13 @@ import aioconsole
 dev_mode = False
 simulated_values = {}
 reset_last_values = False
+last_grid_status = None
+last_ve_bus_status = None
+last_low_battery_status = None
+voltage_issue_reported = {1: False, 2: False, 3: False}
+last_voltage_phases = {1: None, 2: None, 3: None}
+power_issue_counters = {1: 0, 2: 0, 3: 0}
+power_issue_reported = {1: False, 2: False, 3: False}
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -744,14 +751,6 @@ async def monitor():
     global reset_last_values
     global last_grid_status, last_ve_bus_status, last_low_battery_status
     global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
-
-    last_grid_status = None
-    last_ve_bus_status = None
-    last_low_battery_status = None
-    voltage_issue_reported = {1: False, 2: False, 3: False}
-    last_voltage_phases = {1: None, 2: None, 3: None}
-    power_issue_counters = {1: 0, 2: 0, 3: 0}
-    power_issue_reported = {1: False, 2: False, 3: False}
     first_run = True
     tuya_controller = None
 
