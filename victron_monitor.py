@@ -764,6 +764,7 @@ async def monitor():
                 last_ve_bus_status = ve_bus_status
                 last_low_battery_status = low_battery_status
                 last_voltage_phases = voltage_phases
+                first_run = False
 
             config = load_config()
             settings = config['DEFAULT']
