@@ -668,38 +668,41 @@ def get_status(VICTRON_API_URL, API_KEY):
         output_currents = {1: None, 2: None, 3: None}
         ve_bus_state = None
 
-    if 'records' in diagnostics:
-        for diagnostic in diagnostics['records']:
-            if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
-                grid_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
-                ve_bus_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
-                ve_bus_state = int(diagnostic['rawValue'])
-            elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
-                low_battery_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
-                voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
-                voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
-                voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
-                output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
-                output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
-                output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
-                output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
-                output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-            elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
-                output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                
+        if 'records' in diagnostics:
+            for diagnostic in diagnostics['records']:
+                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
+                    grid_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
+                    ve_bus_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
+                    ve_bus_state = int(diagnostic['rawValue'])
+                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
+                    low_battery_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
+                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
+                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
+                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
+                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
+                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
+                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
+                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
+                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
+                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+
         return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
     except ValueError as e:
         print("Error parsing JSON:", e)
+        return None, None, None, None, None, None, None
+    except Exception as e:
+        logging.error(f"Unexpected error in get_status(): {e}")
         return None, None, None, None, None, None, None
 
 # Async function to send a message to the Telegram group
