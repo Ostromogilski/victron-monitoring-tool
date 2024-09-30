@@ -757,17 +757,15 @@ async def monitor():
             TIMEZONE = settings['TIMEZONE']
 
             # Check if essential configuration values are set
-                if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
-                    logging.error("Essential configuration values are missing. Please set them in the configuration.")
-                    await asyncio.sleep(REFRESH_PERIOD)
-                    continue  # Continue the loop instead of exiting
+            if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
+                logging.error("Essential configuration values are missing. Please set them in the configuration.")
+                return  # Exit the monitoring function without running it
 
-                try:
-                    bot = Bot(token=TELEGRAM_TOKEN)
-                except InvalidToken:
-                    logging.error("Invalid Telegram token provided. Please check your configuration.")
-                    await asyncio.sleep(REFRESH_PERIOD)
-                    continue
+            try:
+                bot = Bot(token=TELEGRAM_TOKEN)
+            except InvalidToken:
+                logging.error("Invalid Telegram token provided. Please check your configuration.")
+                return
 
             local_tz = pytz.timezone(TIMEZONE)
 
