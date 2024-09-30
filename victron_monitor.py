@@ -484,23 +484,22 @@ def is_tuya_configured(config):
 
 async def developer_menu():
     global dev_mode
-    global reset_last_values
     global simulated_values
 
-    # Save the current real states before starting simulations
-    saved_last_grid_status = last_grid_status
-    saved_last_ve_bus_status = last_ve_bus_status
-    saved_last_low_battery_status = last_low_battery_status
-    saved_last_voltage_phases = last_voltage_phases.copy()
-    saved_power_issue_counters = power_issue_counters.copy()
-    saved_power_issue_reported = power_issue_reported.copy()
-    saved_voltage_issue_reported = voltage_issue_reported.copy()
+    # Store the real states before starting simulations
+    stored_grid_status = last_grid_status
+    stored_ve_bus_status = last_ve_bus_status
+    stored_low_battery_status = last_low_battery_status
+    stored_voltage_phases = last_voltage_phases.copy()
+    stored_power_issue_counters = power_issue_counters.copy()
+    stored_power_issue_reported = power_issue_reported.copy()
+    stored_voltage_issue_reported = voltage_issue_reported.copy()
 
     dev_mode = True
-    reset_last_values = False
     print("Victron API polling is paused. Entering Developer Menu.")
     config = load_config()
     REFRESH_PERIOD = int(config['DEFAULT'].get('REFRESH_PERIOD', 5))
+
     while True:
         print("\nDeveloper Menu - Simulate States")
         print("1. Simulate Grid Down")
@@ -548,26 +547,26 @@ async def developer_menu():
             except ValueError:
                 print("Invalid input. Please enter numeric values for phase and voltage.")
         elif choice == '8':
+            # Simulate Critical Load on Phase
             simulated_values['grid_status'] = (2, 'Grid Down')
             print("Simulating Grid Down.")
-
             await asyncio.sleep(REFRESH_PERIOD + 1)
 
             phase = 1
             max_power = float(config['DEFAULT']['MAX_POWER'])
             power_limit = max_power * 0.98
             power = power_limit + 100  # Exceed the threshold by 100W
-
             voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])
             current = power / voltage
+
             simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
             simulated_values['output_currents'] = simulated_values.get('output_currents', {})
             simulated_values['output_voltages'][phase] = (voltage, '')
             simulated_values['output_currents'][phase] = (current, '')
             print(f"Simulating Critical Load on Phase {phase} with Power {power:.2f}W.")
-
             await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
 
+            # End the Critical Load Simulation
             simulated_values['output_voltages'].pop(phase, None)
             simulated_values['output_currents'].pop(phase, None)
             simulated_values.pop('grid_status', None)
@@ -584,7 +583,6 @@ async def developer_menu():
             passthru_current = float(config['DEFAULT']['PASSTHRU_CURRENT'])
             current_limit = passthru_current * 0.98
             current = current_limit + 1  # Exceed the threshold by 1A
-
             voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])  # Use nominal voltage
 
             simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
@@ -601,11 +599,20 @@ async def developer_menu():
             simulated_values.pop('grid_status', None)
             print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
         elif choice == '10':
+            # Exit Simulation and restore real values
             dev_mode = False
             simulated_values = {}
-            reset_last_values = True
 
-            print("Exiting Developer Menu. Victron API polling is resumed.")
+            # Restore the real values that were stored before simulation
+            last_grid_status = stored_grid_status
+            last_ve_bus_status = stored_ve_bus_status
+            last_low_battery_status = stored_low_battery_status
+            last_voltage_phases = stored_voltage_phases.copy()
+            power_issue_counters = stored_power_issue_counters.copy()
+            power_issue_reported = stored_power_issue_reported.copy()
+            voltage_issue_reported = stored_voltage_issue_reported.copy()
+
+            print("Simulation ended. Restored real values and resuming Victron API polling.")
             break
         else:
             print("Invalid choice. Please try again.")
