@@ -696,6 +696,7 @@ async def monitor():
                 power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
                 reset_last_values = False
+                first_run = True
 
             config = load_config()
             settings = config['DEFAULT']
