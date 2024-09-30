@@ -70,7 +70,8 @@ DEFAULT_SETTINGS = {
     'TUYA_ACCESS_ID': '',
     'TUYA_ACCESS_KEY': '',
     'TUYA_API_ENDPOINT': '',
-    'TUYA_DEVICE_IDS': ''
+    'TUYA_DEVICE_IDS': '',
+    'LOG_LEVEL': 'INFO'
 }
 
 # Function to create a default configuration file if it doesn't exist
@@ -109,6 +110,25 @@ def load_config():
 def save_config(config):
     with open(CONFIG_FILE, 'w') as configfile:
         config.write(configfile)
+
+# Function to set up logging level
+def setup_logging():
+    # Set up logging with rotation
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    log_file = os.path.join(CONFIG_DIR, 'victron_monitor.log')
+    log_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5)
+    log_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+    log_handler.setFormatter(log_formatter)
+    logging.basicConfig(level=logging.INFO, handlers=[log_handler], format='%(asctime)s %(levelname)s: %(message)s')
+
+    # After loading the config, adjust the logging level
+    config = load_config()
+    logging_level_str = config['DEFAULT'].get('LOG_LEVEL', 'INFO').upper()
+    logging_level = getattr(logging, logging_level_str, logging.INFO)
+    logging.getLogger().setLevel(logging_level)
+
+# Call the setup_logging function to initialize logging
+setup_logging()
 
 # Function to check if essential configuration values are set
 def validate_config(config):
@@ -572,6 +592,34 @@ async def developer_menu():
         else:
             print("Invalid choice. Please try again.")
 
+def setup_logging_level():
+    config = load_config()
+    current_level = config['DEFAULT'].get('LOG_LEVEL', 'INFO').upper()
+    print(f"Current logging level: {current_level}")
+    print("Select logging level:")
+    print("1. DEBUG")
+    print("2. INFO")
+    print("3. WARNING")
+    print("4. ERROR")
+    print("5. CRITICAL")
+    choice = input("Enter your choice (1-5): ").strip()
+    level_map = {
+        '1': 'DEBUG',
+        '2': 'INFO',
+        '3': 'WARNING',
+        '4': 'ERROR',
+        '5': 'CRITICAL'
+    }
+    new_level = level_map.get(choice)
+    if new_level:
+        config['DEFAULT']['LOG_LEVEL'] = new_level
+        save_config(config)
+        logging_level = getattr(logging, new_level, logging.INFO)
+        logging.getLogger().setLevel(logging_level)
+        print(f"Logging level set to {new_level}")
+    else:
+        print("Invalid choice. Logging level not changed.")
+
 # Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
 def get_status(VICTRON_API_URL, API_KEY):
     headers = {
@@ -906,6 +954,11 @@ async def monitor():
 # Main menu
 async def main():
     config = load_config()
+
+    logging_level_str = config['DEFAULT'].get('LOG_LEVEL', 'INFO').upper()
+    logging_level = getattr(logging, logging_level_str, logging.INFO)
+    logging.getLogger().setLevel(logging_level)
+
     if not sys.stdin.isatty():
         print("Running in non-interactive mode. Starting monitor.")
         await monitor()
@@ -952,9 +1005,10 @@ async def main():
         print("6. Restart Service")
         print("7. View Logs")
         print("8. Developer Menu")
-        print("9. Exit")
+        print(f"9. Set Logging Level (Current: {current_log_level})")
+        print("10. Exit")
 
-        choice = input("Enter your choice (1-9): ")
+        choice = input("Enter your choice (1-10): ")
 
         if choice == '1':
             setup_config()
@@ -977,6 +1031,8 @@ async def main():
         elif choice == '8':
             await developer_menu()
         elif choice == '9':
+            setup_logging_level()
+        elif choice == '10':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
