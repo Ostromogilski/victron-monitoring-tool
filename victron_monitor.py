@@ -759,7 +759,11 @@ async def monitor():
                 power_issue_counters = {1: 0, 2: 0, 3: 0}
                 power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
-                first_run = False
+                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                last_grid_status = grid_status
+                last_ve_bus_status = ve_bus_status
+                last_low_battery_status = low_battery_status
+                last_voltage_phases = voltage_phases
 
             config = load_config()
             settings = config['DEFAULT']
