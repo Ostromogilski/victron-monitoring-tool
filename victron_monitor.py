@@ -563,6 +563,14 @@ async def developer_menu():
             simulated_values.pop('ve_bus_state', None)
             simulated_values.pop('grid_status', None)
             print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
+        elif choice == '10':
+            dev_mode = False
+            reset_last_values = True
+            simulated_values = {}
+            print("Exiting Developer Menu. Victron API polling is resumed.")
+            break
+        else:
+            print("Invalid choice. Please try again.")
 
 # Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
 def get_status(VICTRON_API_URL, API_KEY):
