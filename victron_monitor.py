@@ -549,6 +549,7 @@ async def developer_menu():
             except ValueError:
                 print("Invalid input. Please enter numeric values for phase and voltage.")
         elif choice == '8':
+            # Simulate Critical Load on Phase
             simulated_values['grid_status'] = (2, 'Grid Down')
             print("Simulating Grid Down.")
 
@@ -569,9 +570,10 @@ async def developer_menu():
 
             await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
 
-            simulated_values['output_voltages'].pop(phase, None)
-            simulated_values['output_currents'].pop(phase, None)
-            simulated_values.pop('grid_status', None)
+            # Restore the real values for voltage and current on the phase instead of setting None
+            simulated_values['output_voltages'][phase] = stored_voltage_phases.get(phase)
+            simulated_values['output_currents'][phase] = stored_voltage_phases.get(phase)  # Assuming the same logic for currents
+            simulated_values['grid_status'] = stored_grid_status
             print(f"Ending Critical Load simulation on Phase {phase}.")
         elif choice == '9':
             simulated_values['grid_status'] = (0, 'Grid Restored')
@@ -596,10 +598,11 @@ async def developer_menu():
 
             await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
 
-            simulated_values['output_voltages'].pop(phase, None)
-            simulated_values['output_currents'].pop(phase, None)
-            simulated_values.pop('ve_bus_state', None)
-            simulated_values.pop('grid_status', None)
+            # Restore the real values for voltage and current on the phase instead of setting None
+            simulated_values['output_voltages'][phase] = stored_voltage_phases.get(phase)
+            simulated_values['output_currents'][phase] = stored_voltage_phases.get(phase)  # Assuming the same logic for currents
+            simulated_values['ve_bus_state'] = stored_ve_bus_status
+            simulated_values['grid_status'] = stored_grid_status
             print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
         elif choice == '10':
             # Exit Simulation and restore real values
