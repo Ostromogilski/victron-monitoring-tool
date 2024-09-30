@@ -548,24 +548,21 @@ async def developer_menu():
             current_limit = passthru_current * 0.98
             current = current_limit + 1  # Exceed the threshold by 1A
 
+            voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])  # Use nominal voltage
+
+            simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
             simulated_values['output_currents'] = simulated_values.get('output_currents', {})
+            simulated_values['output_voltages'][phase] = (voltage, '')
             simulated_values['output_currents'][phase] = (current, '')
             print(f"Simulating Passthru Critical Load on Phase {phase} with Current {current:.2f}A.")
 
             await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
 
+            simulated_values['output_voltages'].pop(phase, None)
             simulated_values['output_currents'].pop(phase, None)
             simulated_values.pop('ve_bus_state', None)
             simulated_values.pop('grid_status', None)
             print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
-        elif choice == '10':
-            dev_mode = False
-            reset_last_values = True
-            simulated_values = {}
-            print("Exiting Developer Menu. Victron API polling is resumed.")
-            break
-        else:
-            print("Invalid choice. Please try again.")
 
 # Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
 def get_status(VICTRON_API_URL, API_KEY):
