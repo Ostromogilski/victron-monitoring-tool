@@ -969,6 +969,7 @@ async def main():
 
     while True:
         config = load_config()
+        current_log_level = config['DEFAULT'].get('LOG_LEVEL', 'INFO').upper()
         quiet_hours_info = ""
         if config['DEFAULT']['QUIET_HOURS_START'] and config['DEFAULT']['QUIET_HOURS_END']:
             quiet_hours_info = f"{config['DEFAULT']['QUIET_HOURS_START']}:00 to {config['DEFAULT']['QUIET_HOURS_END']}:00"
