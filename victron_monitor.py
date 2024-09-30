@@ -605,20 +605,7 @@ async def developer_menu():
             simulated_values = {}
             reset_last_values = True
 
-            print("Exiting Developer Menu. Fetching real values and resuming Victron API polling.")
-            
-            # Fetch real values immediately
-            grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
-            if grid_status is not None:
-                last_grid_status = grid_status
-            if ve_bus_status is not None:
-                last_ve_bus_status = ve_bus_status
-            if low_battery_status is not None:
-                last_low_battery_status = low_battery_status
-            if voltage_phases is not None:
-                last_voltage_phases = voltage_phases.copy()
-            
-            print("Real values fetched successfully. Resuming normal operation.")
+            print("Exiting Developer Menu. Victron API polling is resumed.")
             break
         else:
             print("Invalid choice. Please try again.")
@@ -765,27 +752,46 @@ async def monitor():
         try:
             if reset_last_values:
                 reset_last_values = False
-                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
-                
-                if grid_status is not None:
-                    last_grid_status = grid_status
-                if ve_bus_status is not None:
-                    last_ve_bus_status = ve_bus_status
-                if low_battery_status is not None:
-                    last_low_battery_status = low_battery_status
-                if voltage_phases is not None:
-                    last_voltage_phases = voltage_phases.copy()
-                    
+                last_grid_status = None
+                last_ve_bus_status = None
+                last_low_battery_status = None
+                last_voltage_phases = {1: None, 2: None, 3: None}
                 power_issue_counters = {1: 0, 2: 0, 3: 0}
                 power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
-                first_run = False
+                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                last_grid_status = grid_status
+                last_ve_bus_status = ve_bus_status
+                last_low_battery_status = low_battery_status
+                last_voltage_phases = voltage_phases
 
             config = load_config()
             settings = config['DEFAULT']
             messages = load_messages(config)
 
+            TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
+            CHAT_ID = settings['CHAT_ID']
+            VICTRON_API_URL = settings['VICTRON_API_URL']
+            API_KEY = settings['API_KEY']
+            REFRESH_PERIOD = int(settings['REFRESH_PERIOD'])
+            TIMEZONE = settings['TIMEZONE']
+
+            # Check if essential configuration values are set
+            if not TELEGRAM_TOKEN or not CHAT_ID or not VICTRON_API_URL or not API_KEY:
+                logging.error("Essential configuration values are missing. Please set them in the configuration.")
+                return  # Exit the monitoring function without running it
+
+            try:
+                bot = Bot(token=TELEGRAM_TOKEN)
+            except InvalidToken:
+                logging.error("Invalid Telegram token provided. Please check your configuration.")
+                return
+
+            local_tz = pytz.timezone(TIMEZONE)
+
+            # Fetch the current status from the Victron API or use simulated values
             if dev_mode:
+                # Use simulated values
                 grid_status = simulated_values.get('grid_status', last_grid_status)
                 ve_bus_status = simulated_values.get('ve_bus_status', last_ve_bus_status)
                 low_battery_status = simulated_values.get('low_battery_status', last_low_battery_status)
@@ -793,6 +799,7 @@ async def monitor():
                 output_voltages = simulated_values.get('output_voltages', {})
                 output_currents = simulated_values.get('output_currents', {})
                 ve_bus_state = simulated_values.get('ve_bus_state', None)
+                # Simulated timestamp
                 timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
             else:
                 # Fetch from API
