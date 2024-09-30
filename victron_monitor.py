@@ -460,6 +460,7 @@ async def developer_menu():
     global reset_last_values
     global simulated_values  # Ensure this is declared global
     dev_mode = True
+    reset_last_values = True
     print("Victron API polling is paused. Entering Developer Menu.")
     config = load_config()
     REFRESH_PERIOD = int(config['DEFAULT'].get('REFRESH_PERIOD', 5))
@@ -879,8 +880,6 @@ async def monitor():
                         elif power < power_reset_threshold:
                             power_issue_counters[phase] = 0
                             power_issue_reported[phase] = False
-                    else:
-                        power_issue_counters[phase] = 0
 
             # Check power consumption on each phase if the VE.Bus state is "Passthru"
             if ve_bus_state != PASSTHRU_STATE:
@@ -901,8 +900,6 @@ async def monitor():
                         elif current < passthru_current_reset_threshold:
                             power_issue_counters[phase] = 0
                             power_issue_reported[phase] = False
-                    else:
-                        power_issue_counters[phase] = 0
 
             await asyncio.sleep(REFRESH_PERIOD)
         except Exception as e:
