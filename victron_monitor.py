@@ -513,61 +513,51 @@ async def developer_menu():
         elif choice == '8':
             simulated_values['grid_status'] = (2, 'Grid Down')
             print("Simulating Grid Down.")
+
             await asyncio.sleep(REFRESH_PERIOD + 1)
 
-            phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            power_input = (await aioconsole.ainput("Enter desired power in W for the phase: ")).strip()
-            try:
-                phase = int(phase)
-                power = float(power_input)
-                if phase in [1, 2, 3]:
-                    voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])
-                    current = power / voltage
-                    simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
-                    simulated_values['output_currents'] = simulated_values.get('output_currents', {})
-                    simulated_values['output_voltages'][phase] = (voltage, '')
-                    simulated_values['output_currents'][phase] = (current, '')
-                    print(f"Simulating Critical Load on Phase {phase} with Power {power}W.")
+            phase = 1
+            max_power = float(config['DEFAULT']['MAX_POWER'])
+            power_limit = max_power * 0.98
+            power = power_limit + 100  # Exceed the threshold by 100W
 
-                    await asyncio.sleep((REFRESH_PERIOD + 1) * 3)
+            voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])
+            current = power / voltage
+            simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
+            simulated_values['output_currents'] = simulated_values.get('output_currents', {})
+            simulated_values['output_voltages'][phase] = (voltage, '')
+            simulated_values['output_currents'][phase] = (current, '')
+            print(f"Simulating Critical Load on Phase {phase} with Power {power:.2f}W.")
 
-                    simulated_values['output_voltages'].pop(phase, None)
-                    simulated_values['output_currents'].pop(phase, None)
-                    simulated_values.pop('grid_status', None)
-                    print(f"Ending Critical Load simulation on Phase {phase}.")
-                else:
-                    print("Invalid phase number.")
-            except ValueError:
-                print("Invalid input. Please enter numeric values for phase and power.")
+            await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
+
+            simulated_values['output_voltages'].pop(phase, None)
+            simulated_values['output_currents'].pop(phase, None)
+            simulated_values.pop('grid_status', None)
+            print(f"Ending Critical Load simulation on Phase {phase}.")
         elif choice == '9':
             simulated_values['grid_status'] = (0, 'Grid Restored')
             print("Simulating Grid Restored.")
-            await asyncio.sleep(REFRESH_PERIOD + 1)
-
             simulated_values['ve_bus_state'] = PASSTHRU_STATE
             print("Simulating VE.Bus in Passthru State.")
+
             await asyncio.sleep(REFRESH_PERIOD + 1)
 
-            phase = (await aioconsole.ainput("Enter phase number (1-3): ")).strip()
-            current_input = (await aioconsole.ainput("Enter desired current in A for the phase: ")).strip()
-            try:
-                phase = int(phase)
-                current = float(current_input)
-                if phase in [1, 2, 3]:
-                    simulated_values['output_currents'] = simulated_values.get('output_currents', {})
-                    simulated_values['output_currents'][phase] = (current, '')
-                    print(f"Simulating Passthru Critical Load on Phase {phase} with Current {current}A.")
+            phase = 1
+            passthru_current = float(config['DEFAULT']['PASSTHRU_CURRENT'])
+            current_limit = passthru_current * 0.98
+            current = current_limit + 1  # Exceed the threshold by 1A
 
-                    await asyncio.sleep((REFRESH_PERIOD + 1) * 3)
+            simulated_values['output_currents'] = simulated_values.get('output_currents', {})
+            simulated_values['output_currents'][phase] = (current, '')
+            print(f"Simulating Passthru Critical Load on Phase {phase} with Current {current:.2f}A.")
 
-                    simulated_values['output_currents'].pop(phase, None)
-                    simulated_values.pop('ve_bus_state', None)
-                    simulated_values.pop('grid_status', None)
-                    print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
-                else:
-                    print("Invalid phase number.")
-            except ValueError:
-                print("Invalid input. Please enter numeric values for phase and current.")
+            await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
+
+            simulated_values['output_currents'].pop(phase, None)
+            simulated_values.pop('ve_bus_state', None)
+            simulated_values.pop('grid_status', None)
+            print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
         elif choice == '10':
             dev_mode = False
             reset_last_values = True
@@ -865,7 +855,8 @@ async def monitor():
                 for phase in range(1, 4):
                     if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
                         # Calculate power consumption by multiplying voltage and current
-                        power = output_voltages[phase][0] * output_currents[phase][0]
+                        nominal_voltage = float(settings['NOMINAL_VOLTAGE'])
+                        power = nominal_voltage * output_currents[phase][0]
                         max_power = float(settings['MAX_POWER'])
                         power_limit = max_power * 0.98  # 2% less than MAX_POWER
                         power_reset_threshold = max_power * 0.80  # 20% less than MAX_POWER
@@ -882,7 +873,7 @@ async def monitor():
                             power_issue_reported[phase] = False
 
             # Check power consumption on each phase if the VE.Bus state is "Passthru"
-            if ve_bus_state != PASSTHRU_STATE:
+            if ve_bus_state == PASSTHRU_STATE:
                 for phase in range(1, 4):
                     if output_voltages.get(phase) is not None and output_currents.get(phase) is not None:
                         current = output_currents[phase][0]
