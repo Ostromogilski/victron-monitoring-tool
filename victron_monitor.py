@@ -486,8 +486,6 @@ async def developer_menu():
     global dev_mode
     global reset_last_values
     global simulated_values
-    global last_grid_status, last_ve_bus_status, last_low_battery_status
-    global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
 
     # Save the current real states before starting simulations
     saved_last_grid_status = last_grid_status
@@ -605,14 +603,7 @@ async def developer_menu():
         elif choice == '10':
             dev_mode = False
             simulated_values = {}
-
-            last_grid_status = saved_last_grid_status
-            last_ve_bus_status = saved_last_ve_bus_status
-            last_low_battery_status = saved_last_low_battery_status
-            last_voltage_phases = saved_last_voltage_phases.copy()
-            power_issue_counters = saved_power_issue_counters.copy()
-            power_issue_reported = saved_power_issue_reported.copy()
-            voltage_issue_reported = saved_voltage_issue_reported.copy()
+            reset_last_values = True
 
             print("Exiting Developer Menu. Victron API polling is resumed.")
             break
@@ -758,6 +749,13 @@ async def monitor():
         try:
             if reset_last_values:
                 reset_last_values = False
+                last_grid_status = None
+                last_ve_bus_status = None
+                last_low_battery_status = None
+                last_voltage_phases = {1: None, 2: None, 3: None}
+                power_issue_counters = {1: 0, 2: 0, 3: 0}
+                power_issue_reported = {1: False, 2: False, 3: False}
+                voltage_issue_reported = {1: False, 2: False, 3: False}
                 first_run = False
 
             config = load_config()
