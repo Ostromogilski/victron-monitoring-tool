@@ -485,6 +485,8 @@ def is_tuya_configured(config):
 async def developer_menu():
     global dev_mode
     global simulated_values
+    global last_grid_status, last_ve_bus_status, last_low_battery_status, last_voltage_phases
+    global power_issue_counters, power_issue_reported, voltage_issue_reported
 
     # Store the real states before starting simulations
     stored_grid_status = last_grid_status
@@ -547,26 +549,26 @@ async def developer_menu():
             except ValueError:
                 print("Invalid input. Please enter numeric values for phase and voltage.")
         elif choice == '8':
-            # Simulate Critical Load on Phase
             simulated_values['grid_status'] = (2, 'Grid Down')
             print("Simulating Grid Down.")
+
             await asyncio.sleep(REFRESH_PERIOD + 1)
 
             phase = 1
             max_power = float(config['DEFAULT']['MAX_POWER'])
             power_limit = max_power * 0.98
             power = power_limit + 100  # Exceed the threshold by 100W
+
             voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])
             current = power / voltage
-
             simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
             simulated_values['output_currents'] = simulated_values.get('output_currents', {})
             simulated_values['output_voltages'][phase] = (voltage, '')
             simulated_values['output_currents'][phase] = (current, '')
             print(f"Simulating Critical Load on Phase {phase} with Power {power:.2f}W.")
+
             await asyncio.sleep((REFRESH_PERIOD + 1) * 5)
 
-            # End the Critical Load Simulation
             simulated_values['output_voltages'].pop(phase, None)
             simulated_values['output_currents'].pop(phase, None)
             simulated_values.pop('grid_status', None)
@@ -583,6 +585,7 @@ async def developer_menu():
             passthru_current = float(config['DEFAULT']['PASSTHRU_CURRENT'])
             current_limit = passthru_current * 0.98
             current = current_limit + 1  # Exceed the threshold by 1A
+
             voltage = float(config['DEFAULT']['NOMINAL_VOLTAGE'])  # Use nominal voltage
 
             simulated_values['output_voltages'] = simulated_values.get('output_voltages', {})
