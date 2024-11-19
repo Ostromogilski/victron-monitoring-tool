@@ -784,6 +784,9 @@ async def monitor():
             settings = config['DEFAULT']
             messages = load_messages(config)
 
+            battery_low_threshold = float(settings.get('BATTERY_LOW_SOC_THRESHOLD', 20))
+            battery_critical_threshold = float(settings.get('BATTERY_CRITICAL_SOC_THRESHOLD', 10))
+
             TELEGRAM_TOKEN = settings['TELEGRAM_TOKEN']
             CHAT_ID = settings['CHAT_ID']
             VICTRON_API_URL = settings['VICTRON_API_URL']
@@ -885,10 +888,6 @@ async def monitor():
                         except Exception as e:
                             logging.error(f"Error turning on Tuya devices: {e}")
                 last_grid_status = grid_status
-
-            # Implement SOC-based battery monitoring
-            battery_low_threshold = float(settings.get('BATTERY_LOW_SOC_THRESHOLD', 20))
-            battery_critical_threshold = float(settings.get('BATTERY_CRITICAL_SOC_THRESHOLD', 10))
 
             if soc is not None and last_soc is not None:
                 # Check for low battery
