@@ -25,6 +25,9 @@ voltage_issue_reported = {1: False, 2: False, 3: False}
 last_voltage_phases = {1: None, 2: None, 3: None}
 power_issue_counters = {1: 0, 2: 0, 3: 0}
 power_issue_reported = {1: False, 2: False, 3: False}
+last_soc = None
+battery_low_reported = False
+battery_critical_reported = False
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -41,6 +44,7 @@ OUTPUT_VOLTAGE_PHASE_3_ID = 22
 OUTPUT_CURRENT_PHASE_1_ID = 23
 OUTPUT_CURRENT_PHASE_2_ID = 24
 OUTPUT_CURRENT_PHASE_3_ID = 25
+SOC_ID = 51
 VE_BUS_STATE_ID = 40
 PASSTHRU_STATE = 9
 GREEN_TEXT = '\033[92m'
@@ -74,6 +78,8 @@ DEFAULT_SETTINGS = {
     'INSTALLATION_ID': '',
     'VOLTAGE_HIGH_THRESHOLD': '1.10',
     'VOLTAGE_LOW_THRESHOLD': '0.90',
+    'BATTERY_LOW_SOC_THRESHOLD': '20',
+    'BATTERY_CRITICAL_SOC_THRESHOLD': '10',
     'TUYA_ACCESS_ID': '',
     'TUYA_ACCESS_KEY': '',
     'TUYA_API_ENDPOINT': '',
@@ -188,6 +194,9 @@ def setup_config():
     config['DEFAULT']['TIMEZONE'] = get_input("Enter timezone (e.g., Europe/Kyiv. Refer to https://www.php.net/manual/en/timezones.php)", config['DEFAULT']['TIMEZONE'])
     config['DEFAULT']['VOLTAGE_HIGH_THRESHOLD'] = get_input("Enter high voltage threshold (e.g., 1.10 for 110%)", config['DEFAULT']['VOLTAGE_HIGH_THRESHOLD'])
     config['DEFAULT']['VOLTAGE_LOW_THRESHOLD'] = get_input("Enter low voltage threshold (e.g., 0.90 for 90%)", config['DEFAULT']['VOLTAGE_LOW_THRESHOLD'])
+    config['DEFAULT']['BATTERY_LOW_SOC_THRESHOLD'] = get_input("Enter low battery SOC threshold (%)", config['DEFAULT']['BATTERY_LOW_SOC_THRESHOLD'])
+    config['DEFAULT']['BATTERY_CRITICAL_SOC_THRESHOLD'] = get_input("Enter critical battery SOC threshold (%)", config['DEFAULT']['BATTERY_CRITICAL_SOC_THRESHOLD'])
+
 
     save_config(config)
     print("Configuration saved successfully.")
@@ -242,8 +251,8 @@ def load_messages(config):
             'GRID_UP_MSG': '✅ Мережа відновлена!\n{timestamp}',
             'VE_BUS_ERROR_MSG': '🚨 Помилка:\n{error}.\n{timestamp}',
             'VE_BUS_RECOVERY_MSG': '🔧 Система відновлена після помилки.\n{timestamp}',
-            'LOW_BATTERY_MSG': '🪫 Низький заряд батареї!\n{timestamp}',
-            'CRITICAL_BATTERY_MSG': '‼️🪫 Критичний заряд батареї!\n{timestamp}',
+            'LOW_BATTERY_MSG': '🪫 Низький рівень заряду батареї: {soc}%!\n{timestamp}',
+            'CRITICAL_BATTERY_MSG': '‼️🪫 Критичний рівень заряду батареї: {soc}%!\n{timestamp}',
             'VOLTAGE_LOW_MSG': '📉 Вхідна напруга на {phase}-й фазі занадто низька: {voltage}V.\n{timestamp}',
             'VOLTAGE_HIGH_MSG': '📈 Вхідна напруга на {phase}-й фазі занадто висока: {voltage}V.\n{timestamp}',
             'VOLTAGE_NORMAL_MSG': '🆗 Вхідна напруга на {phase}-й фазі в межах норми: {voltage}V.\n{timestamp}',
@@ -256,8 +265,8 @@ def load_messages(config):
             'GRID_UP_MSG': '✅ Grid is restored!\n{timestamp}',
             'VE_BUS_ERROR_MSG': '🚨 Error:\n{error}.\n{timestamp}',
             'VE_BUS_RECOVERY_MSG': '🔧 System recovered from error.\n{timestamp}',
-            'LOW_BATTERY_MSG': '🪫 Low battery level!\n{timestamp}',
-            'CRITICAL_BATTERY_MSG': '‼️🪫 Critical battery level!\n{timestamp}',
+            'LOW_BATTERY_MSG': '🪫 Low battery level: {soc}%!\n{timestamp}',
+            'CRITICAL_BATTERY_MSG': '‼️🪫 Critical battery level: {soc}%!\n{timestamp}',
             'VOLTAGE_LOW_MSG': '📉 Input voltage on phase {phase} is too low: {voltage}V.\n{timestamp}',
             'VOLTAGE_HIGH_MSG': '📈 Input voltage on phase {phase} is too high: {voltage}V.\n{timestamp}',
             'VOLTAGE_NORMAL_MSG': '🆗 Input voltage on phase {phase} is within normal range: {voltage}V.\n{timestamp}',
@@ -651,7 +660,7 @@ def setup_logging_level():
     else:
         print("Invalid choice. Logging level not changed.")
 
-# Function to get the status of grid, VE.Bus error, low battery, and input/output voltages and currents
+# Add SOC parsing in get_status()
 def get_status(VICTRON_API_URL, API_KEY):
     headers = {
         'x-authorization': f'Token {API_KEY}',
@@ -662,20 +671,20 @@ def get_status(VICTRON_API_URL, API_KEY):
         response.raise_for_status()
     except requests.exceptions.HTTPError as http_err:
         logging.error(f"HTTP error occurred: {http_err}")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
     except requests.exceptions.ConnectionError as conn_err:
         logging.error(f"Error connecting: {conn_err}")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
     except requests.exceptions.Timeout as timeout_err:
         logging.error(f"Timeout error: {timeout_err}")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
     except requests.exceptions.RequestException as req_err:
         logging.error(f"Request error: {req_err}")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
     try:
         diagnostics = response.json()
-        grid_status, ve_bus_status, low_battery_status = None, None, None
+        grid_status, ve_bus_status, soc = None, None, None
         voltage_phases = {1: None, 2: None, 3: None}
         output_voltages = {1: None, 2: None, 3: None}
         output_currents = {1: None, 2: None, 3: None}
@@ -689,34 +698,25 @@ def get_status(VICTRON_API_URL, API_KEY):
                     ve_bus_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
                 elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
                     ve_bus_state = int(diagnostic['rawValue'])
-                elif diagnostic['idDataAttribute'] == LOW_BATTERY_ID:
-                    low_battery_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_1_ID:
-                    voltage_phases[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_2_ID:
-                    voltage_phases[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VOLTAGE_PHASE_3_ID:
-                    voltage_phases[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_1_ID:
-                    output_voltages[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_2_ID:
-                    output_voltages[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_VOLTAGE_PHASE_3_ID:
-                    output_voltages[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_1_ID:
-                    output_currents[1] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_2_ID:
-                    output_currents[2] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == OUTPUT_CURRENT_PHASE_3_ID:
-                    output_currents[3] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == SOC_ID:
+                    soc = float(diagnostic['rawValue'])  # Assuming rawValue is the SOC percentage
+                elif diagnostic['idDataAttribute'] in [VOLTAGE_PHASE_1_ID, VOLTAGE_PHASE_2_ID, VOLTAGE_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 7  # Assuming IDs 8,9,10 correspond to phases 1,2,3
+                    voltage_phases[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] in [OUTPUT_VOLTAGE_PHASE_1_ID, OUTPUT_VOLTAGE_PHASE_2_ID, OUTPUT_VOLTAGE_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 19  # Assuming IDs 20,21,22 correspond to phases 1,2,3
+                    output_voltages[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] in [OUTPUT_CURRENT_PHASE_1_ID, OUTPUT_CURRENT_PHASE_2_ID, OUTPUT_CURRENT_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 22  # Assuming IDs 23,24,25 correspond to phases 1,2,3
+                    output_currents[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
 
-        return grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state
+        return grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state
     except ValueError as e:
         print("Error parsing JSON:", e)
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
     except Exception as e:
         logging.error(f"Unexpected error in get_status(): {e}")
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None
 
 # Async function to send a message to the Telegram group
 async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
@@ -756,7 +756,8 @@ async def monitor():
     global dev_mode
     global simulated_values
     global reset_last_values
-    global last_grid_status, last_ve_bus_status, last_low_battery_status
+    global last_grid_status, last_ve_bus_status
+    global last_soc, battery_low_reported, battery_critical_reported
     global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
     first_run = True
     tuya_controller = None
@@ -767,16 +768,17 @@ async def monitor():
                 reset_last_values = False
                 last_grid_status = None
                 last_ve_bus_status = None
-                last_low_battery_status = None
+                last_soc = None
+                battery_low_reported = False
+                battery_critical_reported = False
                 last_voltage_phases = {1: None, 2: None, 3: None}
                 power_issue_counters = {1: 0, 2: 0, 3: 0}
                 power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
-                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
                 last_grid_status = grid_status
                 last_ve_bus_status = ve_bus_status
-                last_low_battery_status = low_battery_status
-                last_voltage_phases = voltage_phases
+                last_soc = soc
 
             config = load_config()
             settings = config['DEFAULT']
@@ -807,7 +809,7 @@ async def monitor():
                 # Use simulated values
                 grid_status = simulated_values.get('grid_status', last_grid_status)
                 ve_bus_status = simulated_values.get('ve_bus_status', last_ve_bus_status)
-                low_battery_status = simulated_values.get('low_battery_status', last_low_battery_status)
+                soc = simulated_values.get('soc', last_soc)
                 voltage_phases = simulated_values.get('voltage_phases', last_voltage_phases)
                 output_voltages = simulated_values.get('output_voltages', {})
                 output_currents = simulated_values.get('output_currents', {})
@@ -816,12 +818,12 @@ async def monitor():
                 timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
             else:
                 # Fetch from API
-                grid_status, ve_bus_status, low_battery_status, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
                 timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
 
             logging.debug(f"Fetched grid_status: {grid_status}")
             logging.debug(f"Fetched ve_bus_status: {ve_bus_status}")
-            logging.debug(f"Fetched low_battery_status: {low_battery_status}")
+            logging.debug(f"Fetched SOC: {soc}")
             logging.debug(f"Fetched voltage_phases: {voltage_phases}")
             logging.debug(f"Fetched output_voltages: {output_voltages}")
             logging.debug(f"Fetched output_currents: {output_currents}")
@@ -831,19 +833,17 @@ async def monitor():
             if first_run:
                 last_grid_status = grid_status
                 last_ve_bus_status = ve_bus_status
-                last_low_battery_status = low_battery_status
-                last_voltage_phases = voltage_phases
+                last_soc = soc
+                if soc <= battery_low_threshold:
+                    battery_low_reported = True
+                if soc <= battery_critical_threshold:
+                    battery_critical_reported = True
                 first_run = False
                 await asyncio.sleep(REFRESH_PERIOD)
                 continue
 
             # Initialize TuyaController if credentials are available
-            tuya_enabled = all([
-                settings.get('TUYA_ACCESS_ID'),
-                settings.get('TUYA_ACCESS_KEY'),
-                settings.get('TUYA_API_ENDPOINT'),
-                settings.get('TUYA_DEVICE_IDS')
-            ])
+            tuya_enabled = is_tuya_configured(config)
 
             if tuya_enabled and tuya_controller is None:
                 tuya_device_ids = [id.strip() for id in settings['TUYA_DEVICE_IDS'].split(',')]
@@ -886,30 +886,34 @@ async def monitor():
                             logging.error(f"Error turning on Tuya devices: {e}")
                 last_grid_status = grid_status
 
-            # Check and send VE.Bus error updates independently
-            if ve_bus_status is not None and ve_bus_status != last_ve_bus_status:
-                if ve_bus_status[1] == "No error":
-                    message = messages['VE_BUS_RECOVERY_MSG'].replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                else:
-                    message = messages['VE_BUS_ERROR_MSG'].replace('{error}', ve_bus_status[1]).replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                last_ve_bus_status = ve_bus_status
+            # Implement SOC-based battery monitoring
+            battery_low_threshold = float(settings.get('BATTERY_LOW_SOC_THRESHOLD', 20))
+            battery_critical_threshold = float(settings.get('BATTERY_CRITICAL_SOC_THRESHOLD', 10))
 
-            # Check and send low battery status updates independently
-            if low_battery_status is not None and low_battery_status != last_low_battery_status:
-                if last_low_battery_status is None or last_low_battery_status[0] == 0:
-                    if low_battery_status[0] == 1:
-                        message = messages['LOW_BATTERY_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                    elif low_battery_status[0] == 2:
-                        message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                elif last_low_battery_status[0] == 1 and low_battery_status[0] == 2:
+            if soc is not None and last_soc is not None:
+                # Check for low battery
+                if last_soc > battery_low_threshold and soc <= battery_low_threshold and not battery_low_reported:
+                    message = messages['LOW_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                    battery_low_reported = True
+                    logging.info(f"Low battery detected: SOC={soc}%")
+
+                # Check for critical battery
+                if last_soc > battery_critical_threshold and soc <= battery_critical_threshold and not battery_critical_reported:
                     message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
                     await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                    battery_critical_reported = True
+                    logging.info(f"Critical battery detected: SOC={soc}%")
 
-                last_low_battery_status = low_battery_status
+                # Reset reports if SOC rises above thresholds
+                if soc > battery_low_threshold and battery_low_reported:
+                    battery_low_reported = False
+                    logging.info(f"SOC recovered above low threshold: SOC={soc}%")
+                if soc > battery_critical_threshold and battery_critical_reported:
+                    battery_critical_reported = False
+                    logging.info(f"SOC recovered above critical threshold: SOC={soc}%")
+
+            last_soc = soc
 
             # Check and send voltage phase updates independently
             for phase in range(1, 4):
