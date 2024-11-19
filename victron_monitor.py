@@ -856,37 +856,48 @@ async def monitor():
                     settings['TUYA_API_ENDPOINT'],
                     tuya_device_ids
                 )
-                logging.info("Tuya Controller initialized.")
+                logging.info("Tuya Controller initialized with device IDs: %s", tuya_device_ids)
             elif not tuya_enabled:
                 tuya_controller = None
-                logging.info("Tuya configuration not found. Skipping Tuya device control.")
+                logging.warning("Tuya configuration is missing. Device control is disabled.")
 
             # Check and send grid status updates
             if grid_status != last_grid_status:
-                if grid_status and grid_status[0] == 2:
-                    message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                if grid_status is not None:
+                    status_code, status_description = grid_status
 
-                    # Turn off Tuya devices
-                    if tuya_controller:
-                        try:
-                            tuya_controller.turn_devices_off()
-                            logging.info("Tuya devices turned off due to grid down.")
-                        except Exception as e:
-                            logging.error(f"Error turning off Tuya devices: {e}")
+                    if status_code == 2:
+                        # Grid is down
+                        message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        logging.info(f"Grid status changed to DOWN: {status_description}")
 
-                elif grid_status and grid_status[0] == 0:
-                    # Grid is restored
-                    message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
-                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        # Turn off Tuya devices
+                        if tuya_controller:
+                            try:
+                                tuya_controller.turn_devices_off()
+                                logging.info("Tuya devices turned off due to grid down.")
+                            except Exception as e:
+                                logging.error(f"Error turning off Tuya devices: {e}")
 
-                    # Turn on Tuya devices
-                    if tuya_controller:
-                        try:
-                            tuya_controller.turn_devices_on()
-                            logging.info("Tuya devices turned on due to grid restoration.")
-                        except Exception as e:
-                            logging.error(f"Error turning on Tuya devices: {e}")
+                    elif status_code == 0:
+                        # Grid is restored
+                        message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
+                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                        logging.info(f"Grid status changed to RESTORED: {status_description}")
+
+                        # Turn on Tuya devices
+                        if tuya_controller:
+                            try:
+                                tuya_controller.turn_devices_on()
+                                logging.info("Tuya devices turned on due to grid restoration.")
+                            except Exception as e:
+                                logging.error(f"Error turning on Tuya devices: {e}")
+                    else:
+                        logging.warning(f"Received unexpected grid_status value: {status_code} ({status_description}). Ignoring.")
+                else:
+                    logging.debug("Received grid_status is None. No action taken.")
+
                 last_grid_status = grid_status
 
             if soc is not None and last_soc is not None:
