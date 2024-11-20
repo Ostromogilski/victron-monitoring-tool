@@ -903,14 +903,14 @@ async def monitor():
             if soc is not None and last_soc is not None:
                 # Check for low battery
                 if last_soc > battery_low_threshold and soc <= battery_low_threshold and not battery_low_reported:
-                    message = messages['LOW_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                    message = messages['LOW_BATTERY_MSG'].format(soc=soc, timestamp=timestamp)
                     await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
                     battery_low_reported = True
                     logging.info(f"Low battery detected: SOC={soc}%")
 
                 # Check for critical battery
                 if last_soc > battery_critical_threshold and soc <= battery_critical_threshold and not battery_critical_reported:
-                    message = messages['CRITICAL_BATTERY_MSG'].replace('{timestamp}', timestamp)
+                    message = messages['CRITICAL_BATTERY_MSG'].format(soc=soc, timestamp=timestamp)
                     await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
                     battery_critical_reported = True
                     logging.info(f"Critical battery detected: SOC={soc}%")
