@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 import readline
 from tuya_connector import TuyaOpenAPI
 import aioconsole
+import time
 
 #Global variables
 dev_mode = False
