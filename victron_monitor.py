@@ -203,27 +203,80 @@ def setup_config():
 
 class TuyaController:
     def __init__(self, access_id, access_key, api_endpoint, device_ids):
+        self.access_id = access_id
+        self.access_key = access_key
+        self.api_endpoint = api_endpoint
+        self.device_ids = device_ids
         self.openapi = TuyaOpenAPI(api_endpoint, access_id, access_key)
         self.openapi.connect()
-        self.device_ids = device_ids
 
-    def turn_devices_on(self):
-        for device_id in self.device_ids:
-            try:
-                commands = {'commands': [{'code': 'switch', 'value': True}]}
+    def reauthenticate(self):
+        try:
+            self.openapi = TuyaOpenAPI(self.api_endpoint, self.access_id, self.access_key)
+            self.openapi.connect()
+            logging.info("Re-authenticated with Tuya API.")
+        except Exception as e:
+            logging.error(f"Failed to re-authenticate: {e}")
+
+    def send_command(self, device_id, commands):
+        response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
+        if not response.get('success'):
+            if response.get('code') == 'TOKEN_INVALID':
+                logging.warning("Token invalid, re-authenticating.")
+                self.reauthenticate()
                 response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
                 if not response.get('success'):
-                    logging.error(f"Failed to turn on device {device_id}: {response.get('msg')}")
+                    logging.error(f"Failed to send command to device {device_id} after re-authentication: {response.get('msg')}")
+                else:
+                    logging.info(f"Successfully sent command to device {device_id} after re-authentication.")
+            else:
+                logging.error(f"Failed to send command to device {device_id}: {response.get('msg')}")
+        else:
+            logging.info(f"Successfully sent command to device {device_id}.")
+
+    def get_device_status(self, device_id):
+        response = self.openapi.get(f'/v1.0/iot-03/devices/{device_id}/status')
+        if response.get('success'):
+            return response.get('result')
+        else:
+            logging.error(f"Failed to get status for device {device_id}: {response.get('msg')}")
+            return None
+
+    def turn_devices_on(self):
+        desired_state = True
+        commands = {'commands': [{'code': 'switch', 'value': desired_state}]}
+        for device_id in self.device_ids:
+            try:
+                self.send_command(device_id, commands)
+                time.sleep(1)  # Wait for the device to process the command
+                status = self.get_device_status(device_id)
+                if status:
+                    # Find the switch status
+                    switch_status = next((item for item in status if item['code'] == 'switch'), None)
+                    if switch_status and switch_status['value'] != desired_state:
+                        logging.warning(f"Device {device_id} did not turn on. Retrying...")
+                        self.send_command(device_id, commands)
+                else:
+                    logging.error(f"Could not verify status for device {device_id}")
             except Exception as e:
                 logging.error(f"Exception when turning on device {device_id}: {e}")
 
     def turn_devices_off(self):
+        desired_state = False
+        commands = {'commands': [{'code': 'switch', 'value': desired_state}]}
         for device_id in self.device_ids:
             try:
-                commands = {'commands': [{'code': 'switch', 'value': False}]}
-                response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
-                if not response.get('success'):
-                    logging.error(f"Failed to turn off device {device_id}: {response.get('msg')}")
+                self.send_command(device_id, commands)
+                time.sleep(1)  # Wait for the device to process the command
+                status = self.get_device_status(device_id)
+                if status:
+                    # Find the switch status
+                    switch_status = next((item for item in status if item['code'] == 'switch'), None)
+                    if switch_status and switch_status['value'] != desired_state:
+                        logging.warning(f"Device {device_id} did not turn off. Retrying...")
+                        self.send_command(device_id, commands)
+                else:
+                    logging.error(f"Could not verify status for device {device_id}")
             except Exception as e:
                 logging.error(f"Exception when turning off device {device_id}: {e}")
 
