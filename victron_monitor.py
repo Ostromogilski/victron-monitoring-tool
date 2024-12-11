@@ -243,15 +243,7 @@ class TuyaController:
             logging.error(f"Failed to get status for device {device_id}: {response.get('msg')}")
             return None
 
-        def verify_device_state(self, device_id, desired_state, retries=10, delay=1):
-        """
-        Verify that the device reached the desired state. Checks the device status multiple times.
-        
-        :param device_id: The Tuya device ID
-        :param desired_state: True if we want the device ON, False if OFF
-        :param retries: How many times to re-check device status
-        :param delay: Seconds to wait between checks
-        """
+    def verify_device_state(self, device_id, desired_state, retries=10, delay=1):
         for attempt in range(retries):
             time.sleep(delay)
             status = self.get_device_status(device_id)
