@@ -243,22 +243,40 @@ class TuyaController:
             logging.error(f"Failed to get status for device {device_id}: {response.get('msg')}")
             return None
 
+        def verify_device_state(self, device_id, desired_state, retries=10, delay=1):
+        """
+        Verify that the device reached the desired state. Checks the device status multiple times.
+        
+        :param device_id: The Tuya device ID
+        :param desired_state: True if we want the device ON, False if OFF
+        :param retries: How many times to re-check device status
+        :param delay: Seconds to wait between checks
+        """
+        for attempt in range(retries):
+            time.sleep(delay)
+            status = self.get_device_status(device_id)
+            if status:
+                # Find the 'switch' status in the returned list
+                switch_status = next((item for item in status if item['code'] == 'switch'), None)
+                if switch_status and switch_status['value'] == desired_state:
+                    logging.info(f"Device {device_id} state verified: {desired_state}")
+                    return True
+                else:
+                    logging.warning(f"Device {device_id} not in desired state yet. Attempt {attempt+1}/{retries}")
+            else:
+                logging.error(f"Unable to verify device {device_id} state (no status returned).")
+                break
+        logging.error(f"Device {device_id} failed to reach desired state {desired_state} after {retries} attempts.")
+        return False
+
     def turn_devices_on(self):
         desired_state = True
         commands = {'commands': [{'code': 'switch', 'value': desired_state}]}
         for device_id in self.device_ids:
             try:
                 self.send_command(device_id, commands)
-                time.sleep(1)  # Wait for the device to process the command
-                status = self.get_device_status(device_id)
-                if status:
-                    # Find the switch status
-                    switch_status = next((item for item in status if item['code'] == 'switch'), None)
-                    if switch_status and switch_status['value'] != desired_state:
-                        logging.warning(f"Device {device_id} did not turn on. Retrying...")
-                        self.send_command(device_id, commands)
-                else:
-                    logging.error(f"Could not verify status for device {device_id}")
+                # Instead of checking status immediately, now we verify the device state using the method
+                self.verify_device_state(device_id, desired_state)
             except Exception as e:
                 logging.error(f"Exception when turning on device {device_id}: {e}")
 
@@ -268,16 +286,8 @@ class TuyaController:
         for device_id in self.device_ids:
             try:
                 self.send_command(device_id, commands)
-                time.sleep(1)  # Wait for the device to process the command
-                status = self.get_device_status(device_id)
-                if status:
-                    # Find the switch status
-                    switch_status = next((item for item in status if item['code'] == 'switch'), None)
-                    if switch_status and switch_status['value'] != desired_state:
-                        logging.warning(f"Device {device_id} did not turn off. Retrying...")
-                        self.send_command(device_id, commands)
-                else:
-                    logging.error(f"Could not verify status for device {device_id}")
+                # Use the verification method instead of immediate check
+                self.verify_device_state(device_id, desired_state)
             except Exception as e:
                 logging.error(f"Exception when turning off device {device_id}: {e}")
 
