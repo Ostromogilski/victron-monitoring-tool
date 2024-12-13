@@ -921,7 +921,7 @@ async def monitor():
                         # Turn off Tuya devices
                         if tuya_controller:
                             try:
-                                tuya_controller.turn_devices_off()
+                                await tuya_controller.turn_devices_off()
                                 logging.info("Tuya devices turned off due to grid down.")
                             except Exception as e:
                                 logging.error(f"Error turning off Tuya devices: {e}")
@@ -935,7 +935,7 @@ async def monitor():
                         # Turn on Tuya devices
                         if tuya_controller:
                             try:
-                                tuya_controller.turn_devices_on()
+                                await tuya_controller.turn_devices_on()
                                 logging.info("Tuya devices turned on due to grid restoration.")
                             except Exception as e:
                                 logging.error(f"Error turning on Tuya devices: {e}")
