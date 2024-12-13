@@ -219,13 +219,14 @@ class TuyaController:
         except Exception as e:
             logging.error(f"Failed to re-authenticate: {e}")
 
-    def send_command(self, device_id, commands):
-        response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
+    async def send_command_async(self, device_id, commands):
+        # Run the self.openapi.post in a thread to not block the event loop
+        response = await asyncio.to_thread(self.openapi.post, f'/v1.0/iot-03/devices/{device_id}/commands', commands)
         if not response.get('success'):
             if response.get('code') == 'TOKEN_INVALID':
                 logging.warning("Token invalid, re-authenticating.")
                 self.reauthenticate()
-                response = self.openapi.post(f'/v1.0/iot-03/devices/{device_id}/commands', commands)
+                response = await asyncio.to_thread(self.openapi.post, f'/v1.0/iot-03/devices/{device_id}/commands', commands)
                 if not response.get('success'):
                     logging.error(f"Failed to send command to device {device_id} after re-authentication: {response.get('msg')}")
                 else:
@@ -235,18 +236,18 @@ class TuyaController:
         else:
             logging.info(f"Successfully sent command to device {device_id}.")
 
-    def get_device_status(self, device_id):
-        response = self.openapi.get(f'/v1.0/iot-03/devices/{device_id}/status')
+    async def get_device_status_async(self, device_id):
+        response = await asyncio.to_thread(self.openapi.get, f'/v1.0/iot-03/devices/{device_id}/status')
         if response.get('success'):
             return response.get('result')
         else:
             logging.error(f"Failed to get status for device {device_id}: {response.get('msg')}")
             return None
 
-    def verify_device_state(self, device_id, desired_state, retries=100, delay=1):
+    async def verify_device_state_async(self, device_id, desired_state, retries=100, delay=3):
         for attempt in range(retries):
-            time.sleep(delay)
-            status = self.get_device_status(device_id)
+            await asyncio.sleep(delay)
+            status = await self.get_device_status_async(device_id)
             if status:
                 # Find the 'switch' status in the returned list
                 switch_status = next((item for item in status if item['code'] == 'switch'), None)
@@ -261,27 +262,16 @@ class TuyaController:
         logging.error(f"Device {device_id} failed to reach desired state {desired_state} after {retries} attempts.")
         return False
 
-    def turn_devices_on(self):
+    async def turn_devices_on(self):
         desired_state = True
         commands = {'commands': [{'code': 'switch', 'value': desired_state}]}
-        for device_id in self.device_ids:
-            try:
-                self.send_command(device_id, commands)
-                # Instead of checking status immediately, now we verify the device state using the method
-                self.verify_device_state(device_id, desired_state)
-            except Exception as e:
-                logging.error(f"Exception when turning on device {device_id}: {e}")
+        await asyncio.gather(*(self.send_command_async(device_id, commands) for device_id in self.device_ids))
 
-    def turn_devices_off(self):
+    async def turn_devices_off(self):
         desired_state = False
         commands = {'commands': [{'code': 'switch', 'value': desired_state}]}
-        for device_id in self.device_ids:
-            try:
-                self.send_command(device_id, commands)
-                # Use the verification method instead of immediate check
-                self.verify_device_state(device_id, desired_state)
-            except Exception as e:
-                logging.error(f"Exception when turning off device {device_id}: {e}")
+        await asyncio.gather(*(self.send_command_async(device_id, commands) for device_id in self.device_ids))
+        
 
 def setup_language():
     config = load_config()
