@@ -244,7 +244,7 @@ class TuyaController:
             logging.error(f"Failed to get status for device {device_id}: {response.get('msg')}")
             return None
 
-    async def verify_device_state_async(self, device_id, desired_state, delay=1):
+    async def verify_device_state_async(self, device_id, desired_state, delay=2):
         """
         Verify that the device reached the desired state.
         
@@ -267,7 +267,7 @@ class TuyaController:
         await asyncio.sleep(delay)
         return False
 
-    async def ensure_desired_state(self, device_id, commands, desired_state, max_retries=3, verification_delay=1):
+    async def ensure_desired_state(self, device_id, commands, desired_state, max_retries=100, verification_delay=2):
         """
         Attempt to set the device to the desired state, verify it, and if it fails,
         re-send the command up to max_retries times.
