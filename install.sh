@@ -1,19 +1,81 @@
 #!/bin/bash
 
-# Check if the script is being run with sudo
+# ------------------------------------------------------------------------------
+# 1. Must be run as root
+# ------------------------------------------------------------------------------
 if [ "$EUID" -ne 0 ]; then
   echo "Please run as root (e.g., sudo bash <script>)"
   exit 1
 fi
 
-# Get the original user's home directory, explicitly using SUDO_USER
+# ------------------------------------------------------------------------------
+# 2. Figure out who the "real" user is (in case of sudo)
+# ------------------------------------------------------------------------------
 if [ -n "$SUDO_USER" ]; then
     USER_HOME=$(eval echo "~$SUDO_USER")
 else
     USER_HOME=$HOME
 fi
 
-# Define repository URL and installation directory
+# ------------------------------------------------------------------------------
+# 3. Locate a Python interpreter that is >= 3.13.1
+# ------------------------------------------------------------------------------
+PYTHON_EXE=""
+if command -v python3 &>/dev/null; then
+    PYTHON_EXE="$(command -v python3)"
+else
+    echo "Error: No python3 found on the system."
+    exit 1
+fi
+
+PY_VERSION=$("$PYTHON_EXE" --version 2>&1 | awk '{print $2}')
+IFS='.' read -r major minor patch <<< "$PY_VERSION"
+patch=${patch:-0}   # if patch part is empty, treat as 0
+
+if [ "$major" -lt 3 ] ||
+   ( [ "$major" -eq 3 ] && [ "$minor" -lt 13 ] ) ||
+   ( [ "$major" -eq 3 ] && [ "$minor" -eq 13 ] && [ "$patch" -lt 1 ] ); then
+    echo "Error: Found Python $PY_VERSION, but we need 3.13.1 or higher."
+    exit 1
+fi
+
+echo "Detected Python $PY_VERSION at $PYTHON_EXE which meets the requirement (>= 3.13.1)."
+
+# ------------------------------------------------------------------------------
+# 4. Ensure pip is available for our chosen Python (3.13.1+)
+# ------------------------------------------------------------------------------
+if ! "$PYTHON_EXE" -m pip --version &>/dev/null; then
+    echo "Pip not found for Python $PY_VERSION, attempting to install via ensurepip..."
+    if ! "$PYTHON_EXE" -m ensurepip --upgrade; then
+        echo "Error: Failed to install pip for $PYTHON_EXE."
+        exit 1
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# 5. Function to install Python packages with the chosen Python interpreter
+# ------------------------------------------------------------------------------
+install_python_packages() {
+    echo "Installing required Python packages with $PYTHON_EXE..."
+    
+    # 5.1. Upgrade pip, setuptools, wheel first (good practice)
+    if ! "$PYTHON_EXE" -m pip install --upgrade pip setuptools wheel; then
+        echo "Error: Failed to upgrade pip, setuptools, and wheel."
+        exit 1
+    fi
+    
+    # 5.2. Then install requirements
+    if "$PYTHON_EXE" -m pip install -r requirements.txt; then
+        echo "Python packages installed successfully."
+    else
+        echo "Error: Failed to install Python packages."
+        exit 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 6. Define constants for your project
+# ------------------------------------------------------------------------------
 REPO_URL="https://github.com/Ostromogilski/victron-monitoring-tool.git"
 INSTALL_DIR="/opt/victron-monitoring-tool"
 CONFIG_DIR="$USER_HOME/victron_monitor"
@@ -44,13 +106,14 @@ EOF
 )
 
 # Check for git installation
-if ! command -v git &> /dev/null
-then
+if ! command -v git &> /dev/null; then
     echo "Error: git could not be found. Please install git to proceed."
     exit 1
 fi
 
-# Check if the application already exists
+# ------------------------------------------------------------------------------
+# 7. Check if the application is already installed
+# ------------------------------------------------------------------------------
 if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
     echo "Victron Monitoring Tool is already installed."
     echo "Please select an option:"
@@ -63,55 +126,42 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
         1)
             echo "Updating the application..."
 
-            # Ensure all files from the repository are up to date
             echo "Ensuring all files from the repository are up to date..."
             cd "$INSTALL_DIR" || exit
 
-            # Reset local changes and make sure the repository is clean
+            # Reset local changes and pull
             git reset --hard
             if [ $? -ne 0 ]; then
-                echo "Error: Failed to reset the repository to its latest state."
+                echo "Error: Failed to reset the repository."
                 exit 1
             fi
-
-            # Pull the latest changes from the repository
             git pull
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to update the repository."
                 exit 1
             fi
 
-            # Ensure victron_monitor.py has a Python shebang
-            if [ -f "$INSTALL_DIR/victron_monitor.py" ]; then
-                if ! head -n 1 "$INSTALL_DIR/victron_monitor.py" | grep -q '^#!/usr/bin/env python3'; then
-                    echo "Adding Python shebang to victron_monitor.py..."
-                    sed -i '1s|^|#!/usr/bin/env python3\n|' "$INSTALL_DIR/victron_monitor.py"
-                fi
-            else
+            # Ensure victron_monitor.py exists and has correct shebang
+            if [ ! -f "$INSTALL_DIR/victron_monitor.py" ]; then
                 echo "Error: victron_monitor.py not found!"
                 exit 1
             fi
-
-            # Ensure the target script is executable
+            # Overwrite any existing shebang with the correct Python
+            sed -i "1s|^#!.*|#!${PYTHON_EXE}|" "$INSTALL_DIR/victron_monitor.py"
+            
             echo "Making victron_monitor.py executable..."
-            sudo chmod +x "$INSTALL_DIR/victron_monitor.py"
+            chmod +x "$INSTALL_DIR/victron_monitor.py"
 
-            # Reinitialize /usr/local/bin/victron_monitor as a symlink to the script
             echo "Reinitializing victron_monitor in /usr/local/bin..."
-            sudo ln -sf "$INSTALL_DIR/victron_monitor.py" /usr/local/bin/victron_monitor
+            ln -sf "$INSTALL_DIR/victron_monitor.py" "$BIN_FILE"
             if [ $? -ne 0 ]; then
                 echo "Error: Failed to create the symlink for victron_monitor."
                 exit 1
             fi
 
-            # Install required Python packages
-            echo "Installing required Python packages..."
-            if pip3 install -r requirements.txt; then
-                echo "Python packages installed successfully."
-            else
-                echo "Error: Failed to install Python packages."
-                exit 1
-            fi
+            # Install/upgrade Python packages
+            cd "$INSTALL_DIR" || exit
+            install_python_packages
 
             # Restart the service if it exists
             if systemctl is-active --quiet "$SERVICE_NAME"; then
@@ -132,7 +182,6 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
         2)
             echo "Uninstalling the application..."
 
-            # Stop and disable the service
             if systemctl is-active --quiet "$SERVICE_NAME"; then
                 echo "Stopping the service..."
                 systemctl stop "$SERVICE_NAME"
@@ -148,10 +197,9 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
                 echo "Service file does not exist, skipping."
             fi
 
-            # Remove installation directory and its contents
             if [ -d "$INSTALL_DIR" ]; then
                 echo "Removing application files from $INSTALL_DIR..."
-                sudo rm -rf "$INSTALL_DIR"
+                rm -rf "$INSTALL_DIR"
                 if [ $? -eq 0 ]; then
                     echo "$INSTALL_DIR successfully removed."
                 else
@@ -162,7 +210,6 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
                 echo "$INSTALL_DIR does not exist, skipping."
             fi
 
-            # Remove the binary or symlink from /usr/local/bin
             if [ -f "$BIN_FILE" ] || [ -L "$BIN_FILE" ]; then
                 echo "Removing victron_monitor from /usr/local/bin..."
                 rm -f "$BIN_FILE"
@@ -175,7 +222,6 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
                 echo "victron_monitor does not exist in /usr/local/bin, skipping."
             fi
 
-            # Remove the settings directory created by the Python script
             if [ -d "$CONFIG_DIR" ]; then
                 echo "Removing configuration directory $CONFIG_DIR..."
                 rm -rf "$CONFIG_DIR"
@@ -195,9 +241,11 @@ if [ -d "$INSTALL_DIR" ] || [ -f "$SERVICE_FILE" ] || [ -f "$BIN_FILE" ]; then
             ;;
     esac
 else
+    # ----------------------------------------------------------------------------
+    # Fresh install
+    # ----------------------------------------------------------------------------
     echo "Installing the Victron Monitoring Tool..."
 
-    # Clone the repository
     echo "Cloning the repository..."
     git clone "$REPO_URL" "$INSTALL_DIR"
     if [ $? -ne 0 ]; then
@@ -207,42 +255,20 @@ else
 
     cd "$INSTALL_DIR" || exit
 
-    # Check for Python installation
-    if ! command -v python3 &> /dev/null
-    then
-        echo "Error: Python3 could not be found. Please install Python3 to proceed."
-        exit 1
-    fi
+    # Install requirements with the chosen Python
+    install_python_packages
 
-    # Check for pip installation
-    if ! command -v pip3 &> /dev/null
-    then
-        echo "Error: pip3 could not be found. Please install pip3 to proceed."
-        exit 1
-    fi
-
-    # Install required Python packages
-    echo "Installing required Python packages..."
-    if pip3 install -r requirements.txt; then
-        echo "Python packages installed successfully."
-    else
-        echo "Error: Failed to install Python packages."
-        exit 1
-    fi
-
-    # Make the Python script executable and add shebang if not already present
-    if [ -f victron_monitor.py ]; then
-        if ! head -n 1 victron_monitor.py | grep -q '^#!/usr/bin/env python3'; then
-            echo "Adding shebang to victron_monitor.py..."
-            sed -i '1s|^|#!/usr/bin/env python3\n|' victron_monitor.py
-        fi
-        echo "Making victron_monitor.py executable..."
-        chmod +x victron_monitor.py
-        sudo mv victron_monitor.py /usr/local/bin/victron_monitor
-    else
+    # Put correct shebang in victron_monitor.py
+    if [ ! -f victron_monitor.py ]; then
         echo "Error: victron_monitor.py not found!"
         exit 1
     fi
+    # Overwrite any existing shebang with the correct interpreter
+    sed -i "1s|^#!.*|#!${PYTHON_EXE}|" victron_monitor.py
+
+    echo "Making victron_monitor.py executable..."
+    chmod +x victron_monitor.py
+    mv victron_monitor.py "$BIN_FILE"
 
     echo "Installation complete."
     echo "Please run the \`victron_monitor\` command and choose '1. Configuration' to complete the initial setup."
