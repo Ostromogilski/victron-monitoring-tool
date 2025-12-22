@@ -886,7 +886,10 @@ class DtekScheduleFetcher:
         if not self.api_id or not self.api_hash:
             return None
         if self.client is None:
-            self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
+            session_name = (self.session_name or '').strip() or 'dtek_schedule_session'
+            if not os.path.isabs(session_name):
+                session_name = os.path.join(CONFIG_DIR, session_name)
+            self.client = TelegramClient(session_name, self.api_id, self.api_hash)
         if not self.client.is_connected():
             await self.client.start()
         return self.client
