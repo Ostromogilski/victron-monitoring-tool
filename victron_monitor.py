@@ -891,7 +891,19 @@ class DtekScheduleFetcher:
                 session_name = os.path.join(CONFIG_DIR, session_name)
             self.client = TelegramClient(session_name, self.api_id, self.api_hash)
         if not self.client.is_connected():
-            await self.client.start()
+            await self.client.connect()
+
+        try:
+            is_auth = await self.client.is_user_authorized()
+        except Exception:
+            is_auth = False
+
+        if not is_auth:
+            if sys.stdin.isatty():
+                await self.client.start()
+            else:
+                logging.error("DTEK schedule: Telethon session is not authorized. Run victron_monitor interactively once to log in, then restart the service.")
+                return None
         return self.client
 
     def _parse_schedule_json(self, text: str, tz):
@@ -1013,7 +1025,8 @@ async def monitor():
     tuya_controller = None
     schedule_fetcher = None
     schedule_cache = {}
-    last_schedule_fetch_ts = 0.0
+    next_schedule_fetch_ts = 0.0
+    schedule_fetch_failures = 0
     pre_outage_triggered = set()
 
     while True:
@@ -1151,14 +1164,22 @@ async def monitor():
                 if schedule_fetcher is not None:
                     refresh_seconds = max(60, refresh_minutes * 60)
                     now_ts = time.time()
-                    if now_ts - last_schedule_fetch_ts >= refresh_seconds:
+                    if now_ts >= next_schedule_fetch_ts:
                         try:
                             schedule = await schedule_fetcher.fetch_latest_schedule(local_tz)
                             if schedule and schedule.get('date'):
                                 schedule_cache[str(schedule['date'])] = schedule
-                                last_schedule_fetch_ts = now_ts
+                            schedule_fetch_failures = 0
+                            next_schedule_fetch_ts = now_ts + refresh_seconds
                         except Exception as e:
-                            logging.error(f"Schedule fetch failed: {e}")
+                            schedule_fetch_failures += 1
+                            err_str = str(e)
+                            if 'key is not registered in the system' in err_str:
+                                logging.error("Schedule fetch failed: Telethon session key is not registered. Delete the .session file in ~/victron_monitor/ and log in again interactively.")
+                            else:
+                                logging.error(f"Schedule fetch failed: {e}")
+                            backoff_seconds = min(refresh_seconds, 5 * (2 ** min(schedule_fetch_failures, 6)))
+                            next_schedule_fetch_ts = now_ts + backoff_seconds
 
                 if schedule_cache and grid_status and grid_status[0] == 0:
                     trigger_window_seconds = max(60, REFRESH_PERIOD * 2)
