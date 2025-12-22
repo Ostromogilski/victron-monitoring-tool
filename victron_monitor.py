@@ -7,7 +7,10 @@ import requests
 import asyncio
 from telegram import Bot
 from telegram.error import InvalidToken
-from datetime import datetime
+from datetime import datetime, timedelta, time as dt_time
+import json
+import re
+import tempfile
 import pytz
 import subprocess
 import logging
@@ -17,7 +20,19 @@ from tuya_connector import TuyaOpenAPI
 import aioconsole
 import time
 
-#Global variables
+try:
+    from telethon import TelegramClient
+    from telethon.tl.types import MessageMediaPhoto
+except ImportError:  # pragma: no cover
+    TelegramClient = None
+    MessageMediaPhoto = None
+
+try:
+    import replicate
+except ImportError:  # pragma: no cover
+    replicate = None
+
+# Global variables
 dev_mode = False
 simulated_values = {}
 reset_last_values = False
@@ -87,6 +102,15 @@ DEFAULT_SETTINGS = {
     'TUYA_ACCESS_KEY': '',
     'TUYA_API_ENDPOINT': '',
     'TUYA_DEVICE_IDS': '',
+    'SCHEDULE_ENABLED': '',
+    'DTEK_TELEGRAM_API_ID': '',
+    'DTEK_TELEGRAM_API_HASH': '',
+    'DTEK_TELEGRAM_SESSION_NAME': 'dtek_schedule_session',
+    'DTEK_CHANNEL': 'dtek_ua',
+    'DTEK_QUEUE': '3.1',
+    'REPLICATE_API_TOKEN': '',
+    'SCHEDULE_REFRESH_MINUTES': '60',
+    'PRE_OUTAGE_TUYA_OFF_MINUTES': '5',
     'LOG_LEVEL': 'INFO'
 }
 
@@ -200,6 +224,50 @@ def setup_config():
     config['DEFAULT']['BATTERY_LOW_SOC_THRESHOLD'] = get_input("Enter low battery SOC threshold (%)", config['DEFAULT']['BATTERY_LOW_SOC_THRESHOLD'])
     config['DEFAULT']['BATTERY_CRITICAL_SOC_THRESHOLD'] = get_input("Enter critical battery SOC threshold (%)", config['DEFAULT']['BATTERY_CRITICAL_SOC_THRESHOLD'])
 
+    schedule_enabled_raw = get_input(
+        "Enable DTEK schedule automation (turn off Tuya before scheduled outages) (y/n)",
+        'y' if config['DEFAULT'].get('SCHEDULE_ENABLED', '') else 'n'
+    ).strip().lower()
+    schedule_enabled = schedule_enabled_raw in ('y', 'yes', '1', 'true', 'on')
+    config['DEFAULT']['SCHEDULE_ENABLED'] = 'y' if schedule_enabled else ''
+
+    if schedule_enabled:
+        config['DEFAULT']['DTEK_TELEGRAM_API_ID'] = get_input(
+            "Enter Telegram API ID (Telethon)",
+            config['DEFAULT'].get('DTEK_TELEGRAM_API_ID', '')
+        )
+        config['DEFAULT']['DTEK_TELEGRAM_API_HASH'] = get_input(
+            "Enter Telegram API Hash (Telethon)",
+            config['DEFAULT'].get('DTEK_TELEGRAM_API_HASH', '')
+        )
+        config['DEFAULT']['DTEK_TELEGRAM_SESSION_NAME'] = get_input(
+            "Enter Telegram session name", 
+            config['DEFAULT'].get('DTEK_TELEGRAM_SESSION_NAME', 'dtek_schedule_session')
+        )
+        config['DEFAULT']['DTEK_CHANNEL'] = get_input(
+            "Enter DTEK Telegram channel (e.g., dtek_ua)",
+            config['DEFAULT'].get('DTEK_CHANNEL', 'dtek_ua')
+        )
+        config['DEFAULT']['DTEK_QUEUE'] = get_input(
+            "Enter DTEK queue (e.g., 3.1)",
+            config['DEFAULT'].get('DTEK_QUEUE', '3.1')
+        )
+        config['DEFAULT']['REPLICATE_API_TOKEN'] = get_input(
+            "Enter Replicate API token", 
+            config['DEFAULT'].get('REPLICATE_API_TOKEN', '')
+        )
+        config['DEFAULT']['SCHEDULE_REFRESH_MINUTES'] = get_input(
+            "Enter schedule refresh interval in minutes (e.g., 60)",
+            config['DEFAULT'].get('SCHEDULE_REFRESH_MINUTES', '60')
+        )
+        config['DEFAULT']['PRE_OUTAGE_TUYA_OFF_MINUTES'] = get_input(
+            "Enter minutes before outage to turn off Tuya devices (e.g., 5)",
+            config['DEFAULT'].get('PRE_OUTAGE_TUYA_OFF_MINUTES', '5')
+        )
+    else:
+        config['DEFAULT']['DTEK_TELEGRAM_API_ID'] = ''
+        config['DEFAULT']['DTEK_TELEGRAM_API_HASH'] = ''
+        config['DEFAULT']['REPLICATE_API_TOKEN'] = ''
 
     save_config(config)
     print("Configuration saved successfully.")
@@ -735,96 +803,143 @@ def setup_logging_level():
     else:
         print("Invalid choice. Logging level not changed.")
 
-# Add SOC parsing in get_status()
-def get_status(VICTRON_API_URL, API_KEY):
-    headers = {
-        'x-authorization': f'Token {API_KEY}',
-        'Content-Type': 'application/json'
-    }
-    try:
-        response = requests.get(VICTRON_API_URL, headers=headers)
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as http_err:
-        logging.error(f"HTTP error occurred: {http_err}")
-        return None, None, None, None, None, None, None, None
-    except requests.exceptions.ConnectionError as conn_err:
-        logging.error(f"Error connecting: {conn_err}")
-        return None, None, None, None, None, None, None, None
-    except requests.exceptions.Timeout as timeout_err:
-        logging.error(f"Timeout error: {timeout_err}")
-        return None, None, None, None, None, None, None, None
-    except requests.exceptions.RequestException as req_err:
-        logging.error(f"Request error: {req_err}")
-        return None, None, None, None, None, None, None, None
+def _parse_hhmm(value: str):
+    value = (value or '').strip()
+    if value == '24:00':
+        return dt_time(0, 0)
+    parts = value.split(':')
+    if len(parts) != 2:
+        raise ValueError('Invalid time')
+    return dt_time(int(parts[0]), int(parts[1]))
 
-    try:
-        diagnostics = response.json()
-        grid_status, ve_bus_status, soc = None, None, None
-        voltage_phases = {1: None, 2: None, 3: None}
-        output_voltages = {1: None, 2: None, 3: None}
-        output_currents = {1: None, 2: None, 3: None}
-        ve_bus_state = None
+class DtekScheduleFetcher:
+    def __init__(self, api_id: int, api_hash: str, session_name: str, channel: str, queue: str, replicate_api_token: str):
+        self.api_id = api_id
+        self.api_hash = api_hash
+        self.session_name = session_name
+        self.channel = channel
+        self.queue = queue
+        self.replicate_api_token = replicate_api_token
+        self.client = None
+        self.replicate_client = replicate.Client(api_token=replicate_api_token) if replicate is not None and replicate_api_token else None
 
-        if 'records' in diagnostics:
-            for diagnostic in diagnostics['records']:
-                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
-                    grid_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
-                    ve_bus_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
-                    ve_bus_state = int(diagnostic['rawValue'])
-                elif diagnostic['idDataAttribute'] == SOC_ID:
-                    soc = float(diagnostic['rawValue'])  # Assuming rawValue is the SOC percentage
-                elif diagnostic['idDataAttribute'] in [VOLTAGE_PHASE_1_ID, VOLTAGE_PHASE_2_ID, VOLTAGE_PHASE_3_ID]:
-                    phase = diagnostic['idDataAttribute'] - 7  # Assuming IDs 8,9,10 correspond to phases 1,2,3
-                    voltage_phases[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] in [OUTPUT_VOLTAGE_PHASE_1_ID, OUTPUT_VOLTAGE_PHASE_2_ID, OUTPUT_VOLTAGE_PHASE_3_ID]:
-                    phase = diagnostic['idDataAttribute'] - 19  # Assuming IDs 20,21,22 correspond to phases 1,2,3
-                    output_voltages[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
-                elif diagnostic['idDataAttribute'] in [OUTPUT_CURRENT_PHASE_1_ID, OUTPUT_CURRENT_PHASE_2_ID, OUTPUT_CURRENT_PHASE_3_ID]:
-                    phase = diagnostic['idDataAttribute'] - 22  # Assuming IDs 23,24,25 correspond to phases 1,2,3
-                    output_currents[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+    async def _ensure_client(self):
+        if TelegramClient is None:
+            return None
+        if not self.api_id or not self.api_hash:
+            return None
+        if self.client is None:
+            self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
+        if not self.client.is_connected():
+            await self.client.start()
+        return self.client
 
-        return grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state
-    except ValueError as e:
-        print("Error parsing JSON:", e)
-        return None, None, None, None, None, None, None, None
-    except Exception as e:
-        logging.error(f"Unexpected error in get_status(): {e}")
-        return None, None, None, None, None, None, None, None
+    def _parse_schedule_json(self, text: str, tz):
+        text = (text or '').strip()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if not match:
+                return None
+            try:
+                data = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return None
 
-# Async function to send a message to the Telegram group
-async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
-    local_tz = pytz.timezone(TIMEZONE)
-    now_local = datetime.now(local_tz)
-    current_hour = now_local.hour
-    current_day = now_local.weekday()  # 0 (Monday) to 6 (Sunday)
-    current_day_user_numbering = current_day + 1  # 1 (Monday) to 7 (Sunday)
-    config = load_config()
-    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
-    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
-    quiet_days_str = config['DEFAULT'].get('QUIET_DAYS', '')
-    if quiet_days_str:
-        quiet_days = [int(day.strip()) for day in quiet_days_str.split(',') if day.strip().isdigit()]
-    else:
-        quiet_days = []
+        if not isinstance(data, dict):
+            return None
+        if 'date' not in data or 'periods' not in data:
+            return None
 
-    # Determine if the message should be sent silently
-    disable_notification = False
+        date_str = str(data.get('date', '')).strip()
+        try:
+            parsed_date = datetime.strptime(date_str, '%Y-%m-%d')
+            current_year = datetime.now(tz).year
+            if parsed_date.year < current_year - 1:
+                data['date'] = parsed_date.replace(year=current_year).strftime('%Y-%m-%d')
+        except Exception:
+            return None
 
-    if current_day_user_numbering in quiet_days:
-        disable_notification = True
-    else:
-        if quiet_hours_start is not None and quiet_hours_end is not None:
-            if quiet_hours_start < quiet_hours_end:
-                disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
+        data['queue'] = str(data.get('queue') or self.queue)
+        if not isinstance(data.get('periods'), list):
+            data['periods'] = []
+        return data
+
+    async def fetch_latest_schedule(self, tz):
+        client = await self._ensure_client()
+        if client is None or self.replicate_client is None:
+            return None
+
+        messages = await client.get_messages(self.channel, limit=50)
+        if not messages:
+            return None
+
+        kyiv_msg = None
+        for msg in messages:
+            text = (getattr(msg, 'message', '') or '')
+            if 'Київ:' in text and 'графік' in text:
+                kyiv_msg = msg
+                break
+        if kyiv_msg is None:
+            return None
+
+        if kyiv_msg.grouped_id:
+            album = [m for m in messages if m.grouped_id == kyiv_msg.grouped_id]
+            album.sort(key=lambda m: m.id)
+        else:
+            album = [kyiv_msg]
+
+        photos = [m for m in album if getattr(m, 'photo', None) or (MessageMediaPhoto is not None and isinstance(getattr(m, 'media', None), MessageMediaPhoto))]
+        if not photos:
+            return None
+
+        photo_msg = photos[1] if len(photos) >= 2 else photos[0]
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp_path = tmp.name
+            await client.download_media(photo_msg, file=tmp_path)
+
+            current_year = datetime.now(tz).year
+            prompt = (
+                "You are an assistant that reads Ukrainian power outage schedules from images. "
+                "The image contains a table with outage schedules for several queues. "
+                f"You must read ONLY the row for 'Черга {self.queue}' in the city of Kyiv and return its outage schedule. "
+                f"IMPORTANT: The current year is {current_year}. Make sure the date in YYYY-MM-DD format uses the correct year {current_year}. "
+                "Return STRICTLY one JSON object with no extra text in the following format: "
+                f"{{\"date\": \"YYYY-MM-DD\", \"queue\": \"{self.queue}\", \"periods\": [[\"HH:MM\", \"HH:MM\"], ...]}} . "
+                "If there are no outages for this queue, return \"periods\": []."
+            )
+
+            loop = asyncio.get_running_loop()
+
+            def _call_replicate():
+                with open(tmp_path, 'rb') as f:
+                    return self.replicate_client.run(
+                        'openai/gpt-5-nano',
+                        input={
+                            'prompt': prompt,
+                            'messages': [],
+                            'verbosity': 'low',
+                            'image_input': [f],
+                            'reasoning_effort': 'high',
+                        },
+                    )
+
+            output = await loop.run_in_executor(None, _call_replicate)
+            if isinstance(output, list):
+                text = ''.join(str(part) for part in output)
             else:
-                disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
+                text = str(output)
 
-    if is_test_message:
-        message = '👨🏻‍💻 TEST MESSAGE\n' + message
-
-    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
+            return self._parse_schedule_json(text, tz)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
 # Monitor loop
 async def monitor():
@@ -836,6 +951,10 @@ async def monitor():
     global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
     first_run = True
     tuya_controller = None
+    schedule_fetcher = None
+    schedule_cache = {}
+    last_schedule_fetch_ts = 0.0
+    pre_outage_triggered = set()
 
     while True:
         try:
@@ -935,6 +1054,81 @@ async def monitor():
             elif not tuya_enabled:
                 tuya_controller = None
                 logging.warning("Tuya configuration is missing. Device control is disabled.")
+
+            schedule_enabled = bool(settings.get('SCHEDULE_ENABLED', '').strip())
+            if schedule_enabled and tuya_controller:
+                api_id_raw = (settings.get('DTEK_TELEGRAM_API_ID', '') or '').strip()
+                api_hash = (settings.get('DTEK_TELEGRAM_API_HASH', '') or '').strip()
+                session_name = (settings.get('DTEK_TELEGRAM_SESSION_NAME', '') or 'dtek_schedule_session').strip()
+                channel = (settings.get('DTEK_CHANNEL', '') or 'dtek_ua').strip()
+                queue = (settings.get('DTEK_QUEUE', '') or '3.1').strip()
+                replicate_token = (settings.get('REPLICATE_API_TOKEN', '') or '').strip()
+                try:
+                    refresh_minutes = int((settings.get('SCHEDULE_REFRESH_MINUTES', '60') or '60').strip())
+                except Exception:
+                    refresh_minutes = 60
+                try:
+                    pre_minutes = int((settings.get('PRE_OUTAGE_TUYA_OFF_MINUTES', '5') or '5').strip())
+                except Exception:
+                    pre_minutes = 5
+
+                try:
+                    api_id = int(api_id_raw) if api_id_raw else 0
+                except Exception:
+                    api_id = 0
+
+                if TelegramClient is None or replicate is None:
+                    schedule_fetcher = None
+                elif not api_id or not api_hash or not replicate_token:
+                    schedule_fetcher = None
+                else:
+                    if schedule_fetcher is None:
+                        schedule_fetcher = DtekScheduleFetcher(api_id, api_hash, session_name, channel, queue, replicate_token)
+
+                now = datetime.now(local_tz)
+                pre_outage_triggered = {k for k in pre_outage_triggered if k > now - timedelta(days=1)}
+
+                if schedule_fetcher is not None:
+                    refresh_seconds = max(60, refresh_minutes * 60)
+                    now_ts = time.time()
+                    if now_ts - last_schedule_fetch_ts >= refresh_seconds:
+                        try:
+                            schedule = await schedule_fetcher.fetch_latest_schedule(local_tz)
+                            if schedule and schedule.get('date'):
+                                schedule_cache[str(schedule['date'])] = schedule
+                                last_schedule_fetch_ts = now_ts
+                        except Exception as e:
+                            logging.error(f"Schedule fetch failed: {e}")
+
+                if schedule_cache and grid_status and grid_status[0] == 0:
+                    trigger_window_seconds = max(60, REFRESH_PERIOD * 2)
+                    for day_offset in range(2):
+                        target_date = (now + timedelta(days=day_offset)).date()
+                        date_str = target_date.strftime('%Y-%m-%d')
+                        schedule = schedule_cache.get(date_str)
+                        if not schedule:
+                            continue
+                        periods = schedule.get('periods', []) or []
+                        for item in periods:
+                            if not (isinstance(item, (list, tuple)) and len(item) == 2):
+                                continue
+                            start_str = str(item[0])
+                            try:
+                                start_time = _parse_hhmm(start_str)
+                            except Exception:
+                                continue
+                            start_dt_naive = datetime.combine(target_date, start_time)
+                            start_dt = local_tz.localize(start_dt_naive)
+                            trigger_dt = start_dt - timedelta(minutes=pre_minutes)
+                            delta = (now - trigger_dt).total_seconds()
+                            if 0 <= delta <= trigger_window_seconds:
+                                if start_dt not in pre_outage_triggered:
+                                    try:
+                                        await tuya_controller.turn_devices_off()
+                                        pre_outage_triggered.add(start_dt)
+                                        logging.info(f"Tuya devices turned off {pre_minutes} minutes before scheduled outage at {start_dt.isoformat()}")
+                                    except Exception as e:
+                                        logging.error(f"Error turning off Tuya devices before outage: {e}")
 
             # Check and send grid status updates
             if grid_status != last_grid_status:
@@ -1079,6 +1273,39 @@ async def monitor():
         except Exception as e:
             logging.error(f"Error: {e}")
             await asyncio.sleep(REFRESH_PERIOD)
+
+# Async function to send a message to the Telegram group
+async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
+    local_tz = pytz.timezone(TIMEZONE)
+    now_local = datetime.now(local_tz)
+    current_hour = now_local.hour
+    current_day = now_local.weekday()  # 0 (Monday) to 6 (Sunday)
+    current_day_user_numbering = current_day + 1  # 1 (Monday) to 7 (Sunday)
+    config = load_config()
+    quiet_hours_start = config['DEFAULT'].getint('QUIET_HOURS_START', fallback=None)
+    quiet_hours_end = config['DEFAULT'].getint('QUIET_HOURS_END', fallback=None)
+    quiet_days_str = config['DEFAULT'].get('QUIET_DAYS', '')
+    if quiet_days_str:
+        quiet_days = [int(day.strip()) for day in quiet_days_str.split(',') if day.strip().isdigit()]
+    else:
+        quiet_days = []
+
+    # Determine if the message should be sent silently
+    disable_notification = False
+
+    if current_day_user_numbering in quiet_days:
+        disable_notification = True
+    else:
+        if quiet_hours_start is not None and quiet_hours_end is not None:
+            if quiet_hours_start < quiet_hours_end:
+                disable_notification = quiet_hours_start <= current_hour < quiet_hours_end
+            else:
+                disable_notification = current_hour >= quiet_hours_start or current_hour < quiet_hours_end
+
+    if is_test_message:
+        message = '👨🏻‍💻 TEST MESSAGE\n' + message
+
+    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
 
 # Main menu
 async def main():

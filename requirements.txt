@@ -4,3 +4,5 @@ pytz
 asyncio
 tuya-connector-python
 aioconsole
+Telethon
+replicate
