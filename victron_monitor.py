@@ -46,6 +46,7 @@ power_issue_reported = {1: False, 2: False, 3: False}
 last_soc = None
 battery_low_reported = False
 battery_critical_reported = False
+schedule_login_in_progress = False
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -1013,6 +1014,71 @@ class DtekScheduleFetcher:
                 except Exception:
                     pass
 
+
+async def dtek_schedule_login():
+    global schedule_login_in_progress
+
+    if TelegramClient is None:
+        print("Telethon is not installed. Install dependencies and try again.")
+        return
+
+    config = load_config()
+    settings = config['DEFAULT']
+
+    api_id_raw = (settings.get('DTEK_TELEGRAM_API_ID', '') or '').strip()
+    api_hash = (settings.get('DTEK_TELEGRAM_API_HASH', '') or '').strip()
+    session_name = (settings.get('DTEK_TELEGRAM_SESSION_NAME', '') or 'dtek_schedule_session').strip()
+
+    try:
+        api_id = int(api_id_raw) if api_id_raw else 0
+    except Exception:
+        api_id = 0
+
+    if not api_id or not api_hash:
+        print("DTEK Telegram API credentials are missing. Configure them first in Configuration menu.")
+        return
+
+    if not os.path.isabs(session_name):
+        session_name = os.path.join(CONFIG_DIR, session_name)
+
+    delete_session = input("Delete existing Telethon session file before login? (y/n): ").strip().lower() == 'y'
+    if delete_session:
+        for suffix in ('.session', '.session-journal'):
+            path = session_name + suffix
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+
+        parent = os.path.dirname(session_name)
+        base = os.path.basename(session_name)
+        try:
+            for name in os.listdir(parent):
+                if name.startswith(base + '.session-'):
+                    try:
+                        os.remove(os.path.join(parent, name))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    schedule_login_in_progress = True
+    try:
+        client = TelegramClient(session_name, api_id, api_hash)
+        await client.start()
+        try:
+            is_auth = await client.is_user_authorized()
+        except Exception:
+            is_auth = False
+        if is_auth:
+            print(f"Telethon login successful. Session saved to: {session_name}.session")
+        else:
+            print("Telethon login did not complete successfully.")
+        await client.disconnect()
+    finally:
+        schedule_login_in_progress = False
+
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -1129,7 +1195,7 @@ async def monitor():
                 logging.warning("Tuya configuration is missing. Device control is disabled.")
 
             schedule_enabled = bool(settings.get('SCHEDULE_ENABLED', '').strip())
-            if schedule_enabled and tuya_controller:
+            if schedule_enabled and tuya_controller and not schedule_login_in_progress:
                 api_id_raw = (settings.get('DTEK_TELEGRAM_API_ID', '') or '').strip()
                 api_hash = (settings.get('DTEK_TELEGRAM_API_HASH', '') or '').strip()
                 session_name = (settings.get('DTEK_TELEGRAM_SESSION_NAME', '') or 'dtek_schedule_session').strip()
@@ -1444,9 +1510,10 @@ async def main():
         print("7. View Logs")
         print("8. Developer Menu")
         print(f"9. Set Logging Level (Current: {current_log_level})")
-        print("10. Exit")
+        print("10. DTEK Schedule Login (Telethon)")
+        print("11. Exit")
 
-        choice = input("Enter your choice (1-10): ")
+        choice = input("Enter your choice (1-11): ")
 
         if choice == '1':
             setup_config()
@@ -1471,6 +1538,8 @@ async def main():
         elif choice == '9':
             setup_logging_level()
         elif choice == '10':
+            await dtek_schedule_login()
+        elif choice == '11':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
