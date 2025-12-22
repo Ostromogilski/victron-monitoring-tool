@@ -47,6 +47,8 @@ last_soc = None
 battery_low_reported = False
 battery_critical_reported = False
 schedule_login_in_progress = False
+dtek_schedule_cache = {}
+dtek_schedule_last_updated = None
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -934,7 +936,10 @@ class DtekScheduleFetcher:
         except Exception:
             return None
 
-        data['queue'] = str(data.get('queue') or self.queue)
+        queue_str = str(data.get('queue', '') or '').strip()
+        if queue_str and queue_str != str(self.queue):
+            return None
+        data['queue'] = str(self.queue)
         if not isinstance(data.get('periods'), list):
             data['periods'] = []
         return data
@@ -967,52 +972,62 @@ class DtekScheduleFetcher:
         if not photos:
             return None
 
-        photo_msg = photos[1] if len(photos) >= 2 else photos[0]
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                tmp_path = tmp.name
-            await client.download_media(photo_msg, file=tmp_path)
+        photo_msgs = photos[:2]
+        current_year = datetime.now(tz).year
+        prompt = (
+            "You are an assistant that reads Ukrainian power outage schedules from images. "
+            "The image contains a table with outage schedules for several queues. "
+            f"You must read ONLY the row for 'Черга {self.queue}' in the city of Kyiv and return its outage schedule. "
+            f"IMPORTANT: The current year is {current_year}. Make sure the date in YYYY-MM-DD format uses the correct year {current_year}. "
+            "Return STRICTLY one JSON object with no extra text in the following format: "
+            f"{{\"date\": \"YYYY-MM-DD\", \"queue\": \"{self.queue}\", \"periods\": [[\"HH:MM\", \"HH:MM\"], ...]}} . "
+            "If there are no outages for this queue on that date, return \"periods\": []. "
+            "If the row for this queue is not present in this image or you cannot read it clearly, do NOT guess: return {\"date\": null, \"queue\": \""
+            + str(self.queue)
+            + "\", \"periods\": []}."
+        )
 
-            current_year = datetime.now(tz).year
-            prompt = (
-                "You are an assistant that reads Ukrainian power outage schedules from images. "
-                "The image contains a table with outage schedules for several queues. "
-                f"You must read ONLY the row for 'Черга {self.queue}' in the city of Kyiv and return its outage schedule. "
-                f"IMPORTANT: The current year is {current_year}. Make sure the date in YYYY-MM-DD format uses the correct year {current_year}. "
-                "Return STRICTLY one JSON object with no extra text in the following format: "
-                f"{{\"date\": \"YYYY-MM-DD\", \"queue\": \"{self.queue}\", \"periods\": [[\"HH:MM\", \"HH:MM\"], ...]}} . "
-                "If there are no outages for this queue, return \"periods\": []."
-            )
+        loop = asyncio.get_running_loop()
+        schedules_by_date = {}
+        for photo_msg in photo_msgs:
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                    tmp_path = tmp.name
+                await client.download_media(photo_msg, file=tmp_path)
 
-            loop = asyncio.get_running_loop()
+                def _call_replicate():
+                    with open(tmp_path, 'rb') as f:
+                        return self.replicate_client.run(
+                            'openai/gpt-5-nano',
+                            input={
+                                'prompt': prompt,
+                                'messages': [],
+                                'verbosity': 'low',
+                                'image_input': [f],
+                                'reasoning_effort': 'high',
+                            },
+                        )
 
-            def _call_replicate():
-                with open(tmp_path, 'rb') as f:
-                    return self.replicate_client.run(
-                        'openai/gpt-5-nano',
-                        input={
-                            'prompt': prompt,
-                            'messages': [],
-                            'verbosity': 'low',
-                            'image_input': [f],
-                            'reasoning_effort': 'high',
-                        },
-                    )
+                output = await loop.run_in_executor(None, _call_replicate)
+                if isinstance(output, list):
+                    text = ''.join(str(part) for part in output)
+                else:
+                    text = str(output)
 
-            output = await loop.run_in_executor(None, _call_replicate)
-            if isinstance(output, list):
-                text = ''.join(str(part) for part in output)
-            else:
-                text = str(output)
+                schedule = self._parse_schedule_json(text, tz)
+                if schedule and schedule.get('date'):
+                    schedules_by_date[str(schedule['date'])] = schedule
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
 
-            return self._parse_schedule_json(text, tz)
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+        if not schedules_by_date:
+            return None
+        return list(schedules_by_date.values())
 
 
 async def dtek_schedule_login():
@@ -1079,6 +1094,80 @@ async def dtek_schedule_login():
     finally:
         schedule_login_in_progress = False
 
+
+async def show_dtek_schedule_cache():
+    config = load_config()
+    settings = config['DEFAULT']
+    tz = pytz.timezone(settings.get('TIMEZONE', 'UTC'))
+    now = datetime.now(tz)
+    print(f"DTEK queue: {(settings.get('DTEK_QUEUE', '') or '3.1').strip()}")
+    print(f"Last schedule update: {dtek_schedule_last_updated or 'Never'}")
+    for day_offset in range(2):
+        date_str = (now + timedelta(days=day_offset)).date().strftime('%Y-%m-%d')
+        schedule = dtek_schedule_cache.get(date_str)
+        label = 'Today' if day_offset == 0 else 'Tomorrow'
+        if not schedule:
+            print(f"{label} ({date_str}): <no schedule cached>")
+        else:
+            print(f"{label} ({date_str}):")
+            try:
+                print(json.dumps(schedule, ensure_ascii=False, indent=2))
+            except Exception:
+                print(str(schedule))
+
+
+async def force_fetch_dtek_schedule():
+    global dtek_schedule_cache, dtek_schedule_last_updated
+
+    config = load_config()
+    settings = config['DEFAULT']
+
+    if TelegramClient is None or replicate is None:
+        print("Telethon/Replicate are not installed. Install dependencies and try again.")
+        return
+
+    api_id_raw = (settings.get('DTEK_TELEGRAM_API_ID', '') or '').strip()
+    api_hash = (settings.get('DTEK_TELEGRAM_API_HASH', '') or '').strip()
+    session_name = (settings.get('DTEK_TELEGRAM_SESSION_NAME', '') or 'dtek_schedule_session').strip()
+    channel = (settings.get('DTEK_CHANNEL', '') or 'dtek_ua').strip()
+    queue = (settings.get('DTEK_QUEUE', '') or '3.1').strip()
+    replicate_token = (settings.get('REPLICATE_API_TOKEN', '') or '').strip()
+    tz = pytz.timezone(settings.get('TIMEZONE', 'UTC'))
+
+    try:
+        api_id = int(api_id_raw) if api_id_raw else 0
+    except Exception:
+        api_id = 0
+
+    if not api_id or not api_hash or not replicate_token:
+        print("DTEK schedule credentials are missing. Configure DTEK Telegram API ID/Hash and Replicate token first.")
+        return
+
+    fetcher = DtekScheduleFetcher(api_id, api_hash, session_name, channel, queue, replicate_token)
+    try:
+        schedules = await fetcher.fetch_latest_schedule(tz)
+    except Exception as e:
+        print(f"Force fetch failed: {e}")
+        return
+
+    now = datetime.now(tz)
+    today_str = now.date().strftime('%Y-%m-%d')
+    tomorrow_str = (now + timedelta(days=1)).date().strftime('%Y-%m-%d')
+
+    if schedules:
+        if isinstance(schedules, dict):
+            schedules = [schedules]
+        for schedule in schedules:
+            if schedule and schedule.get('date'):
+                dtek_schedule_cache[str(schedule['date'])] = schedule
+        dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
+        dtek_schedule_last_updated = datetime.now(tz).isoformat()
+        print("Force fetch completed.")
+    else:
+        print("Force fetch completed but no readable schedule was found in the last message photos.")
+
+    await show_dtek_schedule_cache()
+
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -1087,10 +1176,10 @@ async def monitor():
     global last_grid_status, last_ve_bus_status
     global last_soc, battery_low_reported, battery_critical_reported
     global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
+    global dtek_schedule_cache, dtek_schedule_last_updated
     first_run = True
     tuya_controller = None
     schedule_fetcher = None
-    schedule_cache = {}
     next_schedule_fetch_ts = 0.0
     schedule_fetch_failures = 0
     pre_outage_triggered = set()
@@ -1232,9 +1321,17 @@ async def monitor():
                     now_ts = time.time()
                     if now_ts >= next_schedule_fetch_ts:
                         try:
-                            schedule = await schedule_fetcher.fetch_latest_schedule(local_tz)
-                            if schedule and schedule.get('date'):
-                                schedule_cache[str(schedule['date'])] = schedule
+                            schedules = await schedule_fetcher.fetch_latest_schedule(local_tz)
+                            if schedules:
+                                if isinstance(schedules, dict):
+                                    schedules = [schedules]
+                                for schedule in schedules:
+                                    if schedule and schedule.get('date'):
+                                        dtek_schedule_cache[str(schedule['date'])] = schedule
+                                today_str = now.date().strftime('%Y-%m-%d')
+                                tomorrow_str = (now + timedelta(days=1)).date().strftime('%Y-%m-%d')
+                                dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
+                                dtek_schedule_last_updated = datetime.now(local_tz).isoformat()
                             schedule_fetch_failures = 0
                             next_schedule_fetch_ts = now_ts + refresh_seconds
                         except Exception as e:
@@ -1247,12 +1344,12 @@ async def monitor():
                             backoff_seconds = min(refresh_seconds, 5 * (2 ** min(schedule_fetch_failures, 6)))
                             next_schedule_fetch_ts = now_ts + backoff_seconds
 
-                if schedule_cache and grid_status and grid_status[0] == 0:
+                if dtek_schedule_cache and grid_status and grid_status[0] == 0:
                     trigger_window_seconds = max(60, REFRESH_PERIOD * 2)
                     for day_offset in range(2):
                         target_date = (now + timedelta(days=day_offset)).date()
                         date_str = target_date.strftime('%Y-%m-%d')
-                        schedule = schedule_cache.get(date_str)
+                        schedule = dtek_schedule_cache.get(date_str)
                         if not schedule:
                             continue
                         periods = schedule.get('periods', []) or []
@@ -1511,9 +1608,11 @@ async def main():
         print("8. Developer Menu")
         print(f"9. Set Logging Level (Current: {current_log_level})")
         print("10. DTEK Schedule Login (Telethon)")
-        print("11. Exit")
+        print("11. Show DTEK Schedule (cached)")
+        print("12. Force Fetch DTEK Schedule")
+        print("13. Exit")
 
-        choice = input("Enter your choice (1-11): ")
+        choice = input("Enter your choice (1-13): ")
 
         if choice == '1':
             setup_config()
@@ -1540,6 +1639,10 @@ async def main():
         elif choice == '10':
             await dtek_schedule_login()
         elif choice == '11':
+            await show_dtek_schedule_cache()
+        elif choice == '12':
+            await force_fetch_dtek_schedule()
+        elif choice == '13':
             sys.exit(0)
         else:
             print("Invalid choice. Please try again.")
