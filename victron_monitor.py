@@ -669,8 +669,9 @@ async def developer_menu():
         print("7. Simulate Voltage on Phase")
         print("8. Simulate Critical Load")
         print("9. Simulate Passthru Critical Load")
-        print("10. Exit Developer Menu")
-        choice = (await aioconsole.ainput("Enter your choice (1-10): ")).strip()
+        print("10. Send DTEK Schedule Update Message (cached)")
+        print("11. Exit Developer Menu")
+        choice = (await aioconsole.ainput("Enter your choice (1-11): ")).strip()
 
         if choice == '1':
             simulated_values['grid_status'] = (2, 'Grid Down')
@@ -761,6 +762,45 @@ async def developer_menu():
             simulated_values['grid_status'] = stored_grid_status
             print(f"Ending Passthru Critical Load simulation on Phase {phase}.")
         elif choice == '10':
+            config = load_config()
+            settings = config['DEFAULT']
+            TELEGRAM_TOKEN = settings.get('TELEGRAM_TOKEN', '')
+            CHAT_ID = settings.get('CHAT_ID', '')
+            TIMEZONE = settings.get('TIMEZONE', 'UTC')
+
+            if not TELEGRAM_TOKEN or not CHAT_ID:
+                print("Telegram token/chat_id are not configured. Configure them first.")
+                continue
+
+            try:
+                bot = Bot(token=TELEGRAM_TOKEN)
+            except InvalidToken:
+                print("Invalid Telegram token provided. Please check your configuration.")
+                continue
+
+            if not dtek_schedule_cache:
+                _load_dtek_schedule_cache_from_disk()
+
+            tz = pytz.timezone(TIMEZONE)
+            now = datetime.now(tz)
+            sent_any = False
+            for day_offset in range(2):
+                date_str = (now + timedelta(days=day_offset)).date().strftime('%Y-%m-%d')
+                schedule = dtek_schedule_cache.get(date_str)
+                if not schedule:
+                    continue
+                try:
+                    msg = _format_dtek_schedule_update_html(schedule)
+                    await send_telegram_message(bot, CHAT_ID, msg, TIMEZONE, is_test_message=dev_mode, parse_mode='HTML')
+                    sent_any = True
+                except Exception as e:
+                    print(f"Failed to send schedule update message: {e}")
+
+            if sent_any:
+                print("Schedule update message sent.")
+            else:
+                print("No cached schedule found for today/tomorrow.")
+        elif choice == '11':
             # Exit Simulation and restore real values
             dev_mode = False
             simulated_values = {}
@@ -1212,6 +1252,45 @@ async def force_fetch_dtek_schedule():
 
     await show_dtek_schedule_cache()
 
+
+def _format_dtek_schedule_update_html(schedule: dict):
+    date_str = str((schedule or {}).get('date') or '').strip()
+    try:
+        dt = datetime.strptime(date_str, '%Y-%m-%d')
+        date_pretty = dt.strftime('%d.%m.%Y')
+    except Exception:
+        date_pretty = date_str
+
+    lines = [
+        '<b>ℹ️ Оновлено графік відключення електропостачання</b>',
+        '',
+        f'<b>{date_pretty}:</b>',
+    ]
+
+    periods = (schedule or {}).get('periods', []) or []
+    if not periods:
+        lines.append('   ✅ без відключень')
+        return '\n'.join(lines)
+
+    for item in periods:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            continue
+        start_str = str(item[0])
+        end_str = str(item[1])
+        lines.append(f'   🪫 з <b>{start_str}</b> до <b>{end_str}</b>')
+
+    return '\n'.join(lines)
+
+
+def _dtek_schedules_equal(a: dict, b: dict):
+    if not a or not b:
+        return False
+    return (
+        str(a.get('date')) == str(b.get('date'))
+        and str(a.get('queue')) == str(b.get('queue'))
+        and (a.get('periods') or []) == (b.get('periods') or [])
+    )
+
 # Monitor loop
 async def monitor():
     global dev_mode
@@ -1369,14 +1448,27 @@ async def monitor():
                             if schedules:
                                 if isinstance(schedules, dict):
                                     schedules = [schedules]
+
+                                updated_schedules = []
                                 for schedule in schedules:
                                     if schedule and schedule.get('date'):
-                                        dtek_schedule_cache[str(schedule['date'])] = schedule
+                                        ds = str(schedule['date'])
+                                        prev = dtek_schedule_cache.get(ds)
+                                        if prev is None or not _dtek_schedules_equal(prev, schedule):
+                                            updated_schedules.append(schedule)
+                                        dtek_schedule_cache[ds] = schedule
                                 today_str = now.date().strftime('%Y-%m-%d')
                                 tomorrow_str = (now + timedelta(days=1)).date().strftime('%Y-%m-%d')
                                 dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
                                 dtek_schedule_last_updated = datetime.now(local_tz).isoformat()
                                 _save_dtek_schedule_cache_to_disk()
+
+                                for sched in updated_schedules:
+                                    try:
+                                        msg = _format_dtek_schedule_update_html(sched)
+                                        await send_telegram_message(bot, CHAT_ID, msg, TIMEZONE, is_test_message=dev_mode, parse_mode='HTML')
+                                    except Exception as e:
+                                        logging.error(f"Failed to send schedule update message: {e}")
                             schedule_fetch_failures = 0
                             next_schedule_fetch_ts = now_ts + refresh_seconds
                         except Exception as e:
@@ -1564,7 +1656,7 @@ async def monitor():
             await asyncio.sleep(REFRESH_PERIOD)
 
 # Async function to send a message to the Telegram group
-async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False):
+async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=False, parse_mode=None):
     local_tz = pytz.timezone(TIMEZONE)
     now_local = datetime.now(local_tz)
     current_hour = now_local.hour
@@ -1594,7 +1686,7 @@ async def send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message
     if is_test_message:
         message = '👨🏻‍💻 TEST MESSAGE\n' + message
 
-    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification)
+    await bot.send_message(chat_id=CHAT_ID, text=message, disable_notification=disable_notification, parse_mode=parse_mode)
 
 # Main menu
 async def main():
