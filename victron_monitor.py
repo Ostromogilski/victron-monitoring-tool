@@ -803,6 +803,63 @@ def setup_logging_level():
     else:
         print("Invalid choice. Logging level not changed.")
 
+def get_status(VICTRON_API_URL, API_KEY):
+    headers = {
+        'x-authorization': f'Token {API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.get(VICTRON_API_URL, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        logging.error(f"HTTP error occurred: {http_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.ConnectionError as conn_err:
+        logging.error(f"Error connecting: {conn_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.Timeout as timeout_err:
+        logging.error(f"Timeout error: {timeout_err}")
+        return None, None, None, None, None, None, None
+    except requests.exceptions.RequestException as req_err:
+        logging.error(f"Request error: {req_err}")
+        return None, None, None, None, None, None, None
+
+    try:
+        diagnostics = response.json()
+        grid_status, ve_bus_status, soc = None, None, None
+        voltage_phases = {1: None, 2: None, 3: None}
+        output_voltages = {1: None, 2: None, 3: None}
+        output_currents = {1: None, 2: None, 3: None}
+        ve_bus_state = None
+
+        if 'records' in diagnostics:
+            for diagnostic in diagnostics['records']:
+                if diagnostic['idDataAttribute'] == GRID_ALARM_ID:
+                    grid_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_ERROR_ID:
+                    ve_bus_status = int(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] == VE_BUS_STATE_ID:
+                    ve_bus_state = int(diagnostic['rawValue'])
+                elif diagnostic['idDataAttribute'] == SOC_ID:
+                    soc = float(diagnostic['rawValue'])
+                elif diagnostic['idDataAttribute'] in [VOLTAGE_PHASE_1_ID, VOLTAGE_PHASE_2_ID, VOLTAGE_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 7
+                    voltage_phases[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] in [OUTPUT_VOLTAGE_PHASE_1_ID, OUTPUT_VOLTAGE_PHASE_2_ID, OUTPUT_VOLTAGE_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 19
+                    output_voltages[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+                elif diagnostic['idDataAttribute'] in [OUTPUT_CURRENT_PHASE_1_ID, OUTPUT_CURRENT_PHASE_2_ID, OUTPUT_CURRENT_PHASE_3_ID]:
+                    phase = diagnostic['idDataAttribute'] - 22
+                    output_currents[phase] = float(diagnostic['rawValue']), diagnostic['formattedValue']
+
+        return grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state
+    except ValueError as e:
+        logging.error(f"Error parsing JSON: {e}")
+        return None, None, None, None, None, None, None
+    except Exception as e:
+        logging.error(f"Unexpected error in get_status(): {e}")
+        return None, None, None, None, None, None, None
+
 def _parse_hhmm(value: str):
     value = (value or '').strip()
     if value == '24:00':
