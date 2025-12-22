@@ -53,6 +53,7 @@ dtek_schedule_last_updated = None
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.ini')
+DTEK_SCHEDULE_CACHE_FILE = os.path.join(CONFIG_DIR, 'dtek_schedule_cache.json')
 GRID_ALARM_ID = 559
 VE_BUS_ERROR_ID = 41
 LOW_BATTERY_ID = 43
@@ -1095,11 +1096,53 @@ async def dtek_schedule_login():
         schedule_login_in_progress = False
 
 
+def _load_dtek_schedule_cache_from_disk():
+    global dtek_schedule_cache, dtek_schedule_last_updated
+
+    try:
+        if not os.path.exists(DTEK_SCHEDULE_CACHE_FILE):
+            return
+        with open(DTEK_SCHEDULE_CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return
+        schedules = data.get('schedules')
+        if isinstance(schedules, dict):
+            dtek_schedule_cache = schedules
+        last_updated = data.get('last_updated')
+        if isinstance(last_updated, str):
+            dtek_schedule_last_updated = last_updated
+    except Exception:
+        return
+
+
+def _save_dtek_schedule_cache_to_disk():
+    try:
+        payload = {
+            'last_updated': dtek_schedule_last_updated,
+            'schedules': dtek_schedule_cache,
+        }
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp_path = None
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, dir=CONFIG_DIR, encoding='utf-8') as tmp:
+            tmp_path = tmp.name
+            json.dump(payload, tmp, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, DTEK_SCHEDULE_CACHE_FILE)
+    except Exception:
+        try:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 async def show_dtek_schedule_cache():
     config = load_config()
     settings = config['DEFAULT']
     tz = pytz.timezone(settings.get('TIMEZONE', 'UTC'))
     now = datetime.now(tz)
+    if not dtek_schedule_cache:
+        _load_dtek_schedule_cache_from_disk()
     print(f"DTEK queue: {(settings.get('DTEK_QUEUE', '') or '3.1').strip()}")
     print(f"Last schedule update: {dtek_schedule_last_updated or 'Never'}")
     for day_offset in range(2):
@@ -1162,6 +1205,7 @@ async def force_fetch_dtek_schedule():
                 dtek_schedule_cache[str(schedule['date'])] = schedule
         dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
         dtek_schedule_last_updated = datetime.now(tz).isoformat()
+        _save_dtek_schedule_cache_to_disk()
         print("Force fetch completed.")
     else:
         print("Force fetch completed but no readable schedule was found in the last message photos.")
@@ -1332,6 +1376,7 @@ async def monitor():
                                 tomorrow_str = (now + timedelta(days=1)).date().strftime('%Y-%m-%d')
                                 dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
                                 dtek_schedule_last_updated = datetime.now(local_tz).isoformat()
+                                _save_dtek_schedule_cache_to_disk()
                             schedule_fetch_failures = 0
                             next_schedule_fetch_ts = now_ts + refresh_seconds
                         except Exception as e:
