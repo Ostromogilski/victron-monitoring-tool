@@ -49,6 +49,7 @@ battery_critical_reported = False
 schedule_login_in_progress = False
 dtek_schedule_cache = {}
 dtek_schedule_last_updated = None
+dtek_last_message_id = None
 
 # Configuration
 CONFIG_DIR = os.path.expanduser('~/victron_monitor/')
@@ -658,6 +659,9 @@ async def developer_menu():
     config = load_config()
     REFRESH_PERIOD = int(config['DEFAULT'].get('REFRESH_PERIOD', 5))
 
+    if not dtek_schedule_cache:
+        _load_dtek_schedule_cache_from_disk()
+
     while True:
         print("\nDeveloper Menu - Simulate States")
         print("1. Simulate Grid Down")
@@ -923,6 +927,7 @@ class DtekScheduleFetcher:
         self.replicate_api_token = replicate_api_token
         self.client = None
         self.replicate_client = replicate.Client(api_token=replicate_api_token) if replicate is not None and replicate_api_token else None
+        self.last_message_id = None
 
     async def _ensure_client(self):
         if TelegramClient is None:
@@ -965,7 +970,16 @@ class DtekScheduleFetcher:
 
         if not isinstance(data, dict):
             return None
-        if 'date' not in data or 'periods' not in data:
+
+        status = str(data.get('status', '') or '').strip()
+        if status == 'not_found':
+            return None
+
+        if 'periods' not in data:
+            return None
+        if data.get('periods') is None:
+            return None
+        if 'date' not in data or not data.get('date'):
             return None
 
         date_str = str(data.get('date', '')).strip()
@@ -981,8 +995,22 @@ class DtekScheduleFetcher:
         if queue_str and queue_str != str(self.queue):
             return None
         data['queue'] = str(self.queue)
-        if not isinstance(data.get('periods'), list):
+
+        periods = data.get('periods')
+        if status == 'on_all_day':
             data['periods'] = []
+        elif status == 'off_all_day':
+            if not isinstance(periods, list) or len(periods) == 0:
+                data['periods'] = [['00:00', '23:59']]
+            else:
+                data['periods'] = periods
+        else:
+            if not isinstance(periods, list):
+                periods = []
+            if periods == [['00:00', '23:59']]:
+                periods = []
+            data['periods'] = periods
+
         return data
 
     async def fetch_latest_schedule(self, tz):
@@ -1003,6 +1031,13 @@ class DtekScheduleFetcher:
         if kyiv_msg is None:
             return None
 
+        if self.last_message_id is not None:
+            try:
+                if int(kyiv_msg.id) <= int(self.last_message_id):
+                    return None
+            except Exception:
+                pass
+
         if kyiv_msg.grouped_id:
             album = [m for m in messages if m.grouped_id == kyiv_msg.grouped_id]
             album.sort(key=lambda m: m.id)
@@ -1018,19 +1053,22 @@ class DtekScheduleFetcher:
         prompt = (
             "You are an assistant that reads Ukrainian power outage schedules from images. "
             "The image contains a table with outage schedules for several queues. "
-            f"You must read ONLY the row for 'Черга {self.queue}' in the city of Kyiv and return its outage schedule. "
+            f"You must read ONLY the row for 'Черга {self.queue}' in the city of Kyiv and return its schedule. "
             f"IMPORTANT: The current year is {current_year}. Make sure the date in YYYY-MM-DD format uses the correct year {current_year}. "
+            "Determine the status using the visual indicators/text in the image: "
+            "- If it says ON or 'Світло буде весь день' (electricity all day), then there are NO outages. "
+            "- If it says OFF with one or more time ranges, those are outage periods. "
+            "- If it says OFF and indicates the whole day without explicit times, that means outage all day (00:00-23:59). "
+            f"- If you cannot confidently find/read queue {self.queue} for Kyiv in this image, return status=not_found and periods=null. "
+            "Never invent a full-day outage period for an ON/all-day-electricity case. "
             "Return STRICTLY one JSON object with no extra text in the following format: "
-            f"{{\"date\": \"YYYY-MM-DD\", \"queue\": \"{self.queue}\", \"periods\": [[\"HH:MM\", \"HH:MM\"], ...]}} . "
-            "If there are no outages for this queue on that date, return \"periods\": []. "
-            "If the row for this queue is not present in this image or you cannot read it clearly, do NOT guess: return {\"date\": null, \"queue\": \""
-            + str(self.queue)
-            + "\", \"periods\": []}."
+            f"{{\"date\": \"YYYY-MM-DD\" | null, \"queue\": \"{self.queue}\", \"status\": \"on_all_day\"|\"off_all_day\"|\"scheduled\"|\"not_found\", \"periods\": [[\"HH:MM\", \"HH:MM\"], ...] | null}} . "
+            "Rules: if status=on_all_day -> periods must be [] ; if status=off_all_day -> periods must be [[\"00:00\", \"23:59\"]] ; if status=not_found -> periods must be null."
         )
 
         loop = asyncio.get_running_loop()
-        schedules_by_date = {}
-        for photo_msg in photo_msgs:
+
+        async def _extract_from_photo(photo_msg):
             tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
@@ -1056,9 +1094,7 @@ class DtekScheduleFetcher:
                 else:
                     text = str(output)
 
-                schedule = self._parse_schedule_json(text, tz)
-                if schedule and schedule.get('date'):
-                    schedules_by_date[str(schedule['date'])] = schedule
+                return self._parse_schedule_json(text, tz)
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     try:
@@ -1066,9 +1102,21 @@ class DtekScheduleFetcher:
                     except Exception:
                         pass
 
-        if not schedules_by_date:
+        if not photo_msgs:
             return None
-        return list(schedules_by_date.values())
+
+        schedule = await _extract_from_photo(photo_msgs[0])
+        if schedule and schedule.get('date'):
+            self.last_message_id = int(kyiv_msg.id)
+            return [schedule]
+
+        if len(photo_msgs) > 1:
+            schedule = await _extract_from_photo(photo_msgs[1])
+            if schedule and schedule.get('date'):
+                self.last_message_id = int(kyiv_msg.id)
+                return [schedule]
+
+        return None
 
 
 async def dtek_schedule_login():
@@ -1137,7 +1185,7 @@ async def dtek_schedule_login():
 
 
 def _load_dtek_schedule_cache_from_disk():
-    global dtek_schedule_cache, dtek_schedule_last_updated
+    global dtek_schedule_cache, dtek_schedule_last_updated, dtek_last_message_id
 
     try:
         if not os.path.exists(DTEK_SCHEDULE_CACHE_FILE):
@@ -1152,6 +1200,11 @@ def _load_dtek_schedule_cache_from_disk():
         last_updated = data.get('last_updated')
         if isinstance(last_updated, str):
             dtek_schedule_last_updated = last_updated
+        last_message_id = data.get('last_message_id')
+        try:
+            dtek_last_message_id = int(last_message_id) if last_message_id is not None else None
+        except Exception:
+            dtek_last_message_id = None
     except Exception:
         return
 
@@ -1160,6 +1213,7 @@ def _save_dtek_schedule_cache_to_disk():
     try:
         payload = {
             'last_updated': dtek_schedule_last_updated,
+            'last_message_id': dtek_last_message_id,
             'schedules': dtek_schedule_cache,
         }
         os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -1200,7 +1254,7 @@ async def show_dtek_schedule_cache():
 
 
 async def force_fetch_dtek_schedule():
-    global dtek_schedule_cache, dtek_schedule_last_updated
+    global dtek_schedule_cache, dtek_schedule_last_updated, dtek_last_message_id
 
     config = load_config()
     settings = config['DEFAULT']
@@ -1227,6 +1281,7 @@ async def force_fetch_dtek_schedule():
         return
 
     fetcher = DtekScheduleFetcher(api_id, api_hash, session_name, channel, queue, replicate_token)
+    fetcher.last_message_id = dtek_last_message_id
     try:
         schedules = await fetcher.fetch_latest_schedule(tz)
     except Exception as e:
@@ -1243,6 +1298,8 @@ async def force_fetch_dtek_schedule():
         for schedule in schedules:
             if schedule and schedule.get('date'):
                 dtek_schedule_cache[str(schedule['date'])] = schedule
+        if fetcher.last_message_id is not None:
+            dtek_last_message_id = fetcher.last_message_id
         dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
         dtek_schedule_last_updated = datetime.now(tz).isoformat()
         _save_dtek_schedule_cache_to_disk()
@@ -1299,13 +1356,17 @@ async def monitor():
     global last_grid_status, last_ve_bus_status
     global last_soc, battery_low_reported, battery_critical_reported
     global last_voltage_phases, power_issue_counters, power_issue_reported, voltage_issue_reported
-    global dtek_schedule_cache, dtek_schedule_last_updated
+    global dtek_schedule_cache, dtek_schedule_last_updated, dtek_last_message_id
     first_run = True
     tuya_controller = None
     schedule_fetcher = None
     next_schedule_fetch_ts = 0.0
     schedule_fetch_failures = 0
+    vrm_fetch_failures = 0
     pre_outage_triggered = set()
+
+    if not dtek_schedule_cache:
+        _load_dtek_schedule_cache_from_disk()
 
     while True:
         try:
@@ -1321,9 +1382,14 @@ async def monitor():
                 power_issue_reported = {1: False, 2: False, 3: False}
                 voltage_issue_reported = {1: False, 2: False, 3: False}
                 grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
-                last_grid_status = grid_status
-                last_ve_bus_status = ve_bus_status
-                last_soc = soc
+                if grid_status is not None:
+                    last_grid_status = grid_status
+                if ve_bus_status is not None:
+                    last_ve_bus_status = ve_bus_status
+                if soc is not None:
+                    last_soc = soc
+                if isinstance(voltage_phases, dict):
+                    last_voltage_phases = voltage_phases
 
             config = load_config()
             settings = config['DEFAULT']
@@ -1367,7 +1433,29 @@ async def monitor():
             else:
                 # Fetch from API
                 grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state = get_status(VICTRON_API_URL, API_KEY)
+                if all(v is None for v in (grid_status, ve_bus_status, soc, voltage_phases, output_voltages, output_currents, ve_bus_state)):
+                    vrm_fetch_failures += 1
+                    logging.warning(
+                        "VRM API returned no data (consecutive failures: %s). Keeping last known values.",
+                        vrm_fetch_failures,
+                    )
+                    grid_status = last_grid_status
+                    ve_bus_status = last_ve_bus_status
+                    soc = last_soc
+                    voltage_phases = last_voltage_phases
+                    output_voltages = {}
+                    output_currents = {}
+                    ve_bus_state = None
+                else:
+                    vrm_fetch_failures = 0
                 timestamp = datetime.now(local_tz).strftime("%d.%m.%Y %H:%M")
+
+            if voltage_phases is None:
+                voltage_phases = last_voltage_phases if isinstance(last_voltage_phases, dict) else {1: None, 2: None, 3: None}
+            if output_voltages is None:
+                output_voltages = {}
+            if output_currents is None:
+                output_currents = {}
 
             logging.debug(f"Fetched grid_status: {grid_status}")
             logging.debug(f"Fetched ve_bus_status: {ve_bus_status}")
@@ -1379,13 +1467,20 @@ async def monitor():
 
             # Skip sending messages on the first run to set the initial states
             if first_run:
-                last_grid_status = grid_status
-                last_ve_bus_status = ve_bus_status
-                last_soc = soc
-                if soc <= battery_low_threshold:
-                    battery_low_reported = True
-                if soc <= battery_critical_threshold:
-                    battery_critical_reported = True
+                if grid_status is None and ve_bus_status is None and soc is None:
+                    logging.warning("Initial VRM status fetch returned no usable data. Retrying.")
+                    await asyncio.sleep(REFRESH_PERIOD)
+                    continue
+                if grid_status is not None:
+                    last_grid_status = grid_status
+                if ve_bus_status is not None:
+                    last_ve_bus_status = ve_bus_status
+                if soc is not None:
+                    last_soc = soc
+                    if soc <= battery_low_threshold:
+                        battery_low_reported = True
+                    if soc <= battery_critical_threshold:
+                        battery_critical_reported = True
                 first_run = False
                 await asyncio.sleep(REFRESH_PERIOD)
                 continue
@@ -1435,6 +1530,7 @@ async def monitor():
                 else:
                     if schedule_fetcher is None:
                         schedule_fetcher = DtekScheduleFetcher(api_id, api_hash, session_name, channel, queue, replicate_token)
+                        schedule_fetcher.last_message_id = dtek_last_message_id
 
                 now = datetime.now(local_tz)
                 pre_outage_triggered = {k for k in pre_outage_triggered if k > now - timedelta(days=1)}
@@ -1461,6 +1557,8 @@ async def monitor():
                                 tomorrow_str = (now + timedelta(days=1)).date().strftime('%Y-%m-%d')
                                 dtek_schedule_cache = {k: v for k, v in dtek_schedule_cache.items() if k in (today_str, tomorrow_str)}
                                 dtek_schedule_last_updated = datetime.now(local_tz).isoformat()
+                                if schedule_fetcher.last_message_id is not None:
+                                    dtek_last_message_id = schedule_fetcher.last_message_id
                                 _save_dtek_schedule_cache_to_disk()
 
                                 for sched in updated_schedules:
@@ -1512,41 +1610,38 @@ async def monitor():
                                         logging.error(f"Error turning off Tuya devices before outage: {e}")
 
             # Check and send grid status updates
-            if grid_status != last_grid_status:
-                if grid_status is not None:
-                    status_code, status_description = grid_status
+            if grid_status is not None and grid_status != last_grid_status:
+                status_code, status_description = grid_status
 
-                    if status_code == 2:
-                        # Grid is down
-                        message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                        logging.info(f"Grid status changed to DOWN: {status_description}")
+                if status_code == 2:
+                    # Grid is down
+                    message = messages['GRID_DOWN_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                    logging.info(f"Grid status changed to DOWN: {status_description}")
 
-                        # Turn off Tuya devices
-                        if tuya_controller:
-                            try:
-                                await tuya_controller.turn_devices_off()
-                                logging.info("Tuya devices turned off due to grid down.")
-                            except Exception as e:
-                                logging.error(f"Error turning off Tuya devices: {e}")
+                    # Turn off Tuya devices
+                    if tuya_controller:
+                        try:
+                            await tuya_controller.turn_devices_off()
+                            logging.info("Tuya devices turned off due to grid down.")
+                        except Exception as e:
+                            logging.error(f"Error turning off Tuya devices: {e}")
 
-                    elif status_code == 0:
-                        # Grid is restored
-                        message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
-                        await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
-                        logging.info(f"Grid status changed to RESTORED: {status_description}")
+                elif status_code == 0:
+                    # Grid is restored
+                    message = messages['GRID_UP_MSG'].replace('{timestamp}', timestamp)
+                    await send_telegram_message(bot, CHAT_ID, message, TIMEZONE, is_test_message=dev_mode)
+                    logging.info(f"Grid status changed to RESTORED: {status_description}")
 
-                        # Turn on Tuya devices
-                        if tuya_controller:
-                            try:
-                                await tuya_controller.turn_devices_on()
-                                logging.info("Tuya devices turned on due to grid restoration.")
-                            except Exception as e:
-                                logging.error(f"Error turning on Tuya devices: {e}")
-                    else:
-                        logging.warning(f"Received unexpected grid_status value: {status_code} ({status_description}). Ignoring.")
+                    # Turn on Tuya devices
+                    if tuya_controller:
+                        try:
+                            await tuya_controller.turn_devices_on()
+                            logging.info("Tuya devices turned on due to grid restoration.")
+                        except Exception as e:
+                            logging.error(f"Error turning on Tuya devices: {e}")
                 else:
-                    logging.debug("Received grid_status is None. No action taken.")
+                    logging.warning(f"Received unexpected grid_status value: {status_code} ({status_description}). Ignoring.")
 
                 last_grid_status = grid_status
 
